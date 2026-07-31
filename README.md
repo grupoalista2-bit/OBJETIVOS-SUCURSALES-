@@ -10,6 +10,19 @@ Octava versión. Reemplaza el almacenamiento local (`localStorage`) por una base
 - **Un encargado se "vincula" a su usuario.** Al crear o editar un encargado, hay un campo "ID de usuario" donde se pega el UUID del usuario de Supabase Auth que le corresponde. Así la app sabe qué fila de `encargados` le pertenece a quién cuando esa persona inicia sesión.
 - **Se sacó el botón "Borrar datos de prueba".** Ya no tiene sentido: los datos viven en la nube, compartidos, y borrarlos con un botón desde el celular de cualquiera sería peligroso. Si en algún momento se necesita limpiar algo, se hace desde el Table Editor de Supabase.
 
+## Módulo de Gastos por sucursal (actualización)
+
+Se agregó, dentro de esta misma app (mismo login, mismo proyecto de Supabase), un módulo para que cada encargado cargue los gastos de su sucursal y el dueño los apruebe, controle el pago y saque informes por categoría y por fecha. Vive en su propia pestaña "Gastos" en la barra de abajo (separada de "Encargado" y "Dueño"), con un contenido distinto según el rol de quien esté logueado.
+
+- **El encargado carga, no aprueba solo.** Desde la pestaña Gastos, cada encargado completa: categoría (de una lista que arma el dueño), proveedor/entidad (ídem), concepto, monto, fecha, y forma de pago (Efectivo, Transferencia o Cheque — si es cheque, pide también el número y a nombre de quién es la firma). El gasto queda en estado "Pendiente de aprobación": no cuenta como gasto real todavía.
+- **Dos pasos de control, separados: aprobación y pago.** Primero el dueño revisa el gasto (puede corregir cualquier dato) y lo **Aprueba** o **Rechaza**. Un gasto aprobado pasa a la sección "Pagos pendientes", donde el dueño lo marca como **Pagado** una vez que efectivamente se abonó — pueden pasar días entre una cosa y la otra (por ejemplo, un cheque aprobado pero que todavía no se entregó). Esto separa "¿es un gasto legítimo?" de "¿ya se pagó?", que son preguntas distintas.
+- **Categorías y proveedores los administra el dueño.** Dos listas independientes (Categorías de gasto, Proveedores) con el mismo patrón: se crean con un nombre y se pueden desactivar sin borrar el historial de gastos ya cargados con esa categoría o proveedor.
+- **Informe por fechas.** Se elige un rango de fechas (por defecto, el mes en curso) y muestra el total gastado en ese rango, desglosado por categoría y por sucursal. Solo suma los gastos ya **aprobados** — los pendientes o rechazados no entran en el total, para que el número siempre refleje gasto confirmado (esté pagado o no).
+- **El dueño también puede mirar la vista de un encargado.** En la pestaña "Encargado", el dueño ve un selector para elegir a cualquiera y consultar su progreso exactamente como lo ve esa persona (de solo lectura).
+- **Seguridad igual que el resto de la app:** un encargado, por más que manipule el código del navegador, solo puede cargar gastos a su propio nombre, siempre en estado pendiente y sin marcar como pagados — nunca puede aprobarse ni pagarse un gasto a sí mismo, ni ver los gastos de otra sucursal. Eso está impuesto por Row Level Security en la base, no por la pantalla (ver `sql/gastos.sql` y `sql/gastos_v2.sql`).
+
+Si ya tenías la app funcionando y agregás este módulo después, hace falta correr, en este orden, `sql/gastos.sql` y después `sql/gastos_v2.sql` una vez cada uno en el SQL Editor de Supabase (además del `sql/schema.sql` que ya corriste), y volver a subir los archivos actualizados a GitHub — el detalle está en "Actualizar la app ya desplegada", más abajo.
+
 ## Estructura del proyecto
 
 ```
@@ -17,12 +30,14 @@ control-diario-app-supabase/
   index.html                shell de la app: pantalla de login + las dos vistas + barra inferior
   css/styles.css             estilos mobile-first
   js/config.js                 acá se pegan la URL y la clave del proyecto de Supabase
-  js/helpers.js                días hábiles exactos, ritmo, funciones de fecha (sin cambios respecto de v7)
+  js/helpers.js                días hábiles exactos, ritmo, funciones de fecha, y utilidades de gastos
   js/data.js                   Repo (datos) y Auth (login/sesión), ambos hablando con Supabase
   js/ui-encargado.js           vista de solo lectura del propio progreso
   js/ui-dueno.js                alta/edición/pausa de encargados, objetivos, carga diaria, dashboard, comparativo
   js/app.js                     login, logout, y qué pestaña mostrar según el rol
   sql/schema.sql                script SQL para crear las tablas y las reglas de seguridad en Supabase
+  sql/gastos.sql                 script SQL del módulo de gastos (categorías, gastos, RLS)
+  sql/gastos_v2.sql               ampliación: proveedores, forma de pago, cheque, estado de pago
 ```
 
 ## Puesta en marcha, paso a paso
@@ -116,9 +131,19 @@ Cada `git push` posterior actualiza la página sola.
 
 Nunca compartas la **Service Role key** de Supabase (aparece en la misma pantalla de API Keys) — esa sí es secreta, salta por encima de todas las reglas de seguridad, y no la usa esta app en ningún lado.
 
+## Actualizar la app ya desplegada
+
+Cuando se agrega un módulo nuevo (como el de Gastos) a una app que ya está en internet, hay dos partes para actualizar — la base de datos y el código:
+
+1. **Base de datos:** si el módulo trae un script SQL nuevo (por ejemplo `sql/gastos.sql`), corrélo una vez en el SQL Editor de Supabase, igual que hiciste con `sql/schema.sql` al principio.
+2. **Código:** en GitHub, entrá al repositorio, y por cada archivo que cambió o se agregó, subilo de nuevo:
+   - Si subiste los archivos originalmente arrastrándolos ("uploading an existing file"), volvé a hacer lo mismo: arrastrá los archivos nuevos o modificados a la raíz del repositorio (GitHub los va a detectar como cambios sobre los que ya existen) y confirmá con **Commit changes**.
+   - Vercel detecta el cambio en GitHub automáticamente y vuelve a desplegar la app sola, sin que haya que tocar nada en Vercel. En un minuto la URL ya sirve la versión actualizada.
+
 ## Pendiente para próximas versiones
 
 - Botón dentro del panel del dueño para invitar/crear usuarios de encargados sin tener que ir manualmente al dashboard de Supabase (requiere un backend liviano, porque crear usuarios con permisos administrativos necesita la Service Role key, que nunca debe estar en el navegador).
 - Recuperación de contraseña por email para los encargados (hoy, si alguien olvida la suya, el dueño se la resetea manualmente desde Authentication > Users en el dashboard).
 - Multi-sucursal con datos separados por dueño, si algún día se vende a otra cadena.
 - Gráfico de evolución del historial en vez de solo los últimos 7 días.
+- Adjuntar foto del comprobante a cada gasto (queda para una próxima versión si hace falta).

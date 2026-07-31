@@ -21,6 +21,38 @@ function mapEncargadoDB(row) {
   };
 }
 
+function mapCategoriaGastoDB(row) {
+  return { id: row.id, nombre: row.nombre, activa: row.activa };
+}
+
+function mapProveedorDB(row) {
+  return { id: row.id, nombre: row.nombre, activo: row.activo };
+}
+
+function mapGastoDB(row, encargadosPorId, categoriasPorId, proveedoresPorId) {
+  const enc = (encargadosPorId || {})[row.encargado_id];
+  const cat = (categoriasPorId || {})[row.categoria_id];
+  const prov = (proveedoresPorId || {})[row.proveedor_id];
+  return {
+    id: row.id,
+    encargadoId: row.encargado_id,
+    encargadoNombre: enc ? enc.nombre : '(encargado eliminado)',
+    sucursal: enc ? enc.sucursal : '',
+    categoriaId: row.categoria_id,
+    categoriaNombre: cat ? cat.nombre : '(categoría eliminada)',
+    proveedorId: row.proveedor_id || '',
+    proveedorNombre: prov ? prov.nombre : (row.proveedor_id ? '(proveedor eliminado)' : ''),
+    monto: Number(row.monto),
+    fecha: row.fecha,
+    nota: row.nota || '',
+    formaPago: row.forma_pago || 'efectivo',
+    chequeNumero: row.cheque_numero || '',
+    chequeFirma: row.cheque_firma || '',
+    estado: row.estado,
+    estadoPago: row.estado_pago || 'pendiente',
+  };
+}
+
 function mapObjetivoDB(row, historialRows) {
   const historial = (historialRows || [])
     .filter(h => h.objetivo_id === row.id)
@@ -169,6 +201,143 @@ const Repo = {
     if (errObj) throw errObj;
     const { data: cargas } = await supabaseClient.from('cargas_tickets').select('*').eq('objetivo_id', objId);
     return mapObjetivoDB(obj, cargas || []);
+  },
+
+  // ---- Categorías de gasto ----
+
+  async getCategoriasGasto() {
+    const { data, error } = await supabaseClient.from('categorias_gasto').select('*').order('nombre', { ascending: true });
+    if (error) throw error;
+    return data.map(mapCategoriaGastoDB);
+  },
+
+  async crearCategoriaGasto(nombre) {
+    const { data, error } = await supabaseClient.from('categorias_gasto').insert({ nombre: nombre.trim() }).select().single();
+    if (error) throw error;
+    return mapCategoriaGastoDB(data);
+  },
+
+  async editarCategoriaGasto(id, { nombre, activa }) {
+    const cambios = {};
+    if (nombre !== undefined) cambios.nombre = nombre.trim();
+    if (activa !== undefined) cambios.activa = activa;
+    const { data, error } = await supabaseClient.from('categorias_gasto').update(cambios).eq('id', id).select().single();
+    if (error) throw error;
+    return mapCategoriaGastoDB(data);
+  },
+
+  // ---- Proveedores / entidades ----
+
+  async getProveedores() {
+    const { data, error } = await supabaseClient.from('proveedores').select('*').order('nombre', { ascending: true });
+    if (error) throw error;
+    return data.map(mapProveedorDB);
+  },
+
+  async crearProveedor(nombre) {
+    const { data, error } = await supabaseClient.from('proveedores').insert({ nombre: nombre.trim() }).select().single();
+    if (error) throw error;
+    return mapProveedorDB(data);
+  },
+
+  async editarProveedor(id, { nombre, activo }) {
+    const cambios = {};
+    if (nombre !== undefined) cambios.nombre = nombre.trim();
+    if (activo !== undefined) cambios.activo = activo;
+    const { data, error } = await supabaseClient.from('proveedores').update(cambios).eq('id', id).select().single();
+    if (error) throw error;
+    return mapProveedorDB(data);
+  },
+
+  // ---- Gastos ----
+  // Para armar los objetos de gasto ya con nombre de encargado/sucursal,
+  // categoría y proveedor (en vez de solo los ids), se resuelven las tres
+  // listas una vez y se usan como diccionario.
+
+  async _mapasGastos() {
+    const [encargados, categorias, proveedores] = await Promise.all([
+      this.getEncargados(),
+      this.getCategoriasGasto(),
+      this.getProveedores(),
+    ]);
+    const encargadosPorId = {};
+    encargados.forEach(e => { encargadosPorId[e.id] = e; });
+    const categoriasPorId = {};
+    categorias.forEach(c => { categoriasPorId[c.id] = c; });
+    const proveedoresPorId = {};
+    proveedores.forEach(p => { proveedoresPorId[p.id] = p; });
+    return { encargadosPorId, categoriasPorId, proveedoresPorId };
+  },
+
+  // Todos los gastos (el dueño ve todos; si lo llamara un encargado, por
+  // RLS solo le vendrían los suyos igual, aunque esta app no lo usa así).
+  async getGastos() {
+    const { data, error } = await supabaseClient.from('gastos').select('*')
+      .order('fecha', { ascending: false })
+      .order('creado_en', { ascending: false });
+    if (error) throw error;
+    const { encargadosPorId, categoriasPorId, proveedoresPorId } = await this._mapasGastos();
+    return data.map(g => mapGastoDB(g, encargadosPorId, categoriasPorId, proveedoresPorId));
+  },
+
+  async getMisGastos(encargadoId) {
+    const { data, error } = await supabaseClient.from('gastos').select('*')
+      .eq('encargado_id', encargadoId)
+      .order('fecha', { ascending: false })
+      .order('creado_en', { ascending: false });
+    if (error) throw error;
+    const { encargadosPorId, categoriasPorId, proveedoresPorId } = await this._mapasGastos();
+    return data.map(g => mapGastoDB(g, encargadosPorId, categoriasPorId, proveedoresPorId));
+  },
+
+  // Lo carga el encargado. No se mandan "estado" ni "estado_pago": quedan
+  // en "pendiente" por el valor por defecto de la tabla (y aunque se
+  // mandara otra cosa, la política de RLS de inserción lo rechaza si
+  // quien inserta no es el dueño).
+  async crearGasto({ encargadoId, categoriaId, proveedorId, monto, fecha, nota, formaPago, chequeNumero, chequeFirma }) {
+    const fila = {
+      encargado_id: encargadoId,
+      categoria_id: categoriaId,
+      proveedor_id: proveedorId || null,
+      monto: Number(monto) || 0,
+      fecha: fecha || hoyISO(),
+      nota: (nota || '').trim(),
+      forma_pago: formaPago || 'efectivo',
+      cheque_numero: (chequeNumero || '').trim(),
+      cheque_firma: (chequeFirma || '').trim(),
+    };
+    const { data, error } = await supabaseClient.from('gastos').insert(fila).select().single();
+    if (error) throw error;
+    return data;
+  },
+
+  // Lo usa el dueño para aprobar o rechazar un gasto pendiente, pudiendo
+  // corregir cualquiera de estos datos antes de decidir.
+  async revisarGasto(id, { estado, categoriaId, proveedorId, monto, nota, formaPago, chequeNumero, chequeFirma }) {
+    const cambios = { estado, revisado_en: new Date().toISOString() };
+    if (categoriaId !== undefined) cambios.categoria_id = categoriaId;
+    if (proveedorId !== undefined) cambios.proveedor_id = proveedorId || null;
+    if (monto !== undefined) cambios.monto = Number(monto) || 0;
+    if (nota !== undefined) cambios.nota = (nota || '').trim();
+    if (formaPago !== undefined) cambios.forma_pago = formaPago;
+    if (chequeNumero !== undefined) cambios.cheque_numero = (chequeNumero || '').trim();
+    if (chequeFirma !== undefined) cambios.cheque_firma = (chequeFirma || '').trim();
+    const { data, error } = await supabaseClient.from('gastos').update(cambios).eq('id', id).select().single();
+    if (error) throw error;
+    return data;
+  },
+
+  // Lo usa el dueño para marcar un gasto ya aprobado como efectivamente
+  // pagado, pudiendo corregir la forma de pago o los datos del cheque en
+  // el mismo paso si hace falta.
+  async marcarGastoPagado(id, { formaPago, chequeNumero, chequeFirma }) {
+    const cambios = { estado_pago: 'pagado' };
+    if (formaPago !== undefined) cambios.forma_pago = formaPago;
+    if (chequeNumero !== undefined) cambios.cheque_numero = (chequeNumero || '').trim();
+    if (chequeFirma !== undefined) cambios.cheque_firma = (chequeFirma || '').trim();
+    const { data, error } = await supabaseClient.from('gastos').update(cambios).eq('id', id).select().single();
+    if (error) throw error;
+    return data;
   },
 };
 

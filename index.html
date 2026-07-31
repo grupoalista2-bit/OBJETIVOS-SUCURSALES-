@@ -38,8 +38,16 @@
 <main id="main">
 
   <section id="view-encargado" class="view active">
-    <p class="hint">Este es tu progreso del mes. La carga de tickets la hace el dueño.</p>
-    <div id="encargado-lista"></div>
+    <div id="encargado-propio" style="display:none;">
+      <p class="hint">Este es tu progreso del mes. La carga de tickets la hace el dueño.</p>
+      <div id="encargado-lista"></div>
+    </div>
+    <div id="encargado-como-dueno" style="display:none;">
+      <p class="hint">Elegí un encargado para ver su progreso, igual que lo ve él. Es solo lectura — para cargar o corregir tickets, usá tu panel de Dueño.</p>
+      <label class="label" for="select-ver-encargado">Encargado</label>
+      <select id="select-ver-encargado"></select>
+      <div id="encargado-lista-dueno"></div>
+    </div>
   </section>
 
   <section id="view-dueno" class="view">
@@ -100,6 +108,94 @@
     <div id="chart-tickets-dia"></div>
   </section>
 
+  <section id="view-gastos" class="view">
+    <div id="gastos-encargado" style="display:none;">
+      <p class="hint">Cargá los gastos de tu sucursal. Quedan pendientes hasta que el dueño los apruebe.</p>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:12px;">Cargar un gasto</div>
+        <label class="label" for="gasto-categoria">Categoría</label>
+        <select id="gasto-categoria"></select>
+        <label class="label" for="gasto-proveedor">Proveedor / entidad</label>
+        <select id="gasto-proveedor"></select>
+        <label class="label" for="gasto-nota">Concepto</label>
+        <textarea id="gasto-nota" placeholder="Ej: reposición de bolsas, arreglo de heladera..."></textarea>
+        <label class="label" for="gasto-monto">Monto</label>
+        <input type="number" id="gasto-monto" placeholder="Ej: 15000">
+        <label class="label" for="gasto-fecha">Fecha</label>
+        <input type="date" id="gasto-fecha">
+        <label class="label" for="gasto-forma-pago">Forma de pago</label>
+        <select id="gasto-forma-pago">
+          <option value="efectivo">Efectivo</option>
+          <option value="transferencia">Transferencia</option>
+          <option value="cheque">Cheque</option>
+        </select>
+        <div id="gasto-cheque-datos" style="display:none;">
+          <label class="label" for="gasto-cheque-numero">Número de cheque</label>
+          <input type="text" id="gasto-cheque-numero" placeholder="Ej: 00012345">
+          <label class="label" for="gasto-cheque-firma">A nombre de quién es la firma</label>
+          <input type="text" id="gasto-cheque-firma" placeholder="Ej: Juan Pérez">
+        </div>
+        <p class="hint" style="margin-top:-2px;">Queda pendiente hasta que el dueño lo revise y lo apruebe.</p>
+        <div class="row-actions">
+          <button class="primary" data-action="crear-gasto" style="width:100%;">Cargar gasto</button>
+        </div>
+      </div>
+      <div id="mis-gastos-lista"></div>
+    </div>
+
+    <div id="gastos-dueno" style="display:none;">
+      <div class="section-title" style="margin-top:4px;">Categorías de gasto</div>
+      <div id="categorias-gasto-lista"></div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:12px;">Agregar categoría</div>
+        <label class="label" for="nueva-categoria-nombre">Nombre</label>
+        <input type="text" id="nueva-categoria-nombre" placeholder="Ej: Limpieza, Insumos, Servicios...">
+        <div class="row-actions">
+          <button class="primary" data-action="crear-categoria-gasto" style="width:100%;">Agregar categoría</button>
+        </div>
+      </div>
+
+      <div class="section-title">Proveedores</div>
+      <div id="proveedores-lista"></div>
+      <div class="card">
+        <div class="card-title" style="margin-bottom:12px;">Agregar proveedor</div>
+        <label class="label" for="nuevo-proveedor-nombre">Nombre</label>
+        <input type="text" id="nuevo-proveedor-nombre" placeholder="Ej: Distribuidora Sur, Coca-Cola, Edenor...">
+        <div class="row-actions">
+          <button class="primary" data-action="crear-proveedor" style="width:100%;">Agregar proveedor</button>
+        </div>
+      </div>
+
+      <div class="section-title">Gastos pendientes de aprobación</div>
+      <p class="hint">Podés corregir la categoría, el proveedor, el concepto, el monto o la forma de pago antes de aprobar o rechazar.</p>
+      <div id="gastos-pendientes-lista"></div>
+
+      <div class="section-title">Pagos pendientes</div>
+      <p class="hint">Gastos ya aprobados que todavía no se pagaron. Marcalos cuando se efectivice el pago.</p>
+      <div id="pagos-pendientes-lista"></div>
+
+      <div class="section-title">Informe de gastos por categoría</div>
+      <p class="hint">Solo suma los gastos ya aprobados dentro del rango elegido.</p>
+      <div class="card">
+        <div class="field-row">
+          <div>
+            <label class="label" for="informe-desde">Desde</label>
+            <input type="date" id="informe-desde">
+          </div>
+          <div>
+            <label class="label" for="informe-hasta">Hasta</label>
+            <input type="date" id="informe-hasta">
+          </div>
+        </div>
+        <div class="row-actions">
+          <button class="secondary" data-action="filtrar-informe-gastos" style="width:100%;">Actualizar informe</button>
+        </div>
+      </div>
+      <div id="informe-gastos-categoria"></div>
+      <div id="informe-gastos-sucursal"></div>
+    </div>
+  </section>
+
 </main>
 
 <nav class="bottom-nav">
@@ -110,6 +206,10 @@
   <button class="nav-btn" data-view="dueno" id="nav-btn-dueno">
     <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M3 20h18"></path></svg>
     Dueño
+  </button>
+  <button class="nav-btn" data-view="gastos" id="nav-btn-gastos">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v10"></path><path d="M9.5 9.3c0-1.3 1.1-2.3 2.5-2.3s2.5.9 2.5 2c0 1.4-1.4 1.9-2.5 2.2-1.4.4-2.5.9-2.5 2.3 0 1.1 1.1 2 2.5 2s2.5-1 2.5-2.2"></path></svg>
+    Gastos
   </button>
 </nav>
 

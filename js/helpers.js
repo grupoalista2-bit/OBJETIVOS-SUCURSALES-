@@ -129,3 +129,46 @@ function resumenObjetivoProgreso(obj, hoy) {
   const colorCard = superado ? 'verde' : (r.enRitmo ? 'azul' : 'rojo');
   return { avance, superado, r, unidad, mensajeEstado, colorCard };
 }
+
+// ---- Gastos ----
+
+// Número -> "15.000,00" (formato de pesos argentinos, sin el símbolo $).
+function formatearMonto(valor) {
+  const n = Number(valor) || 0;
+  return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Suma los gastos EN ESTADO "aprobado" cuya fecha cae dentro de
+// [desde, hasta] (fechas 'YYYY-MM-DD', ambos límites inclusive; cualquiera
+// de los dos puede venir vacío para no acotar por ese lado), agrupados por
+// el campo indicado (por ejemplo 'categoriaNombre' o 'sucursal'). Devuelve
+// un array [{ clave, total }] ordenado de mayor a menor gasto. Los gastos
+// pendientes o rechazados no entran en la suma: recién cuentan como gasto
+// real una vez que el dueño los aprueba.
+function agruparGastosAprobados(gastos, desde, hasta, campo) {
+  const totales = {};
+  (gastos || []).forEach(g => {
+    if (g.estado !== 'aprobado') return;
+    if (desde && g.fecha < desde) return;
+    if (hasta && g.fecha > hasta) return;
+    const clave = g[campo] || '(sin dato)';
+    totales[clave] = (totales[clave] || 0) + g.monto;
+  });
+  return Object.entries(totales)
+    .map(([clave, total]) => ({ clave, total }))
+    .sort((a, b) => b.total - a.total);
+}
+
+// Igual que agruparGastosAprobados, pero con un segundo nivel de
+// agrupación adentro de cada grupo externo (por ejemplo, sucursal por
+// afuera y categoría por adentro). Devuelve
+// [{ clave, total, subgrupos: [{ clave, total }] }], todo ordenado de
+// mayor a menor gasto.
+function agruparGastosAprobadosAnidado(gastos, desde, hasta, campoExterno, campoInterno) {
+  const externos = agruparGastosAprobados(gastos, desde, hasta, campoExterno);
+  return externos.map(ext => {
+    const delGrupo = (gastos || []).filter(g => (g[campoExterno] || '(sin dato)') === ext.clave);
+    const subgrupos = agruparGastosAprobados(delGrupo, desde, hasta, campoInterno);
+    return { clave: ext.clave, total: ext.total, subgrupos };
+  });
+}

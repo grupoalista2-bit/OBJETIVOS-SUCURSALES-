@@ -337,6 +337,228 @@ async function renderComparativo() {
   `;
 }
 
+// ---- Categorías de gasto ----
+
+async function renderCategoriasGasto() {
+  const cont = document.getElementById('categorias-gasto-lista');
+  const categorias = await Repo.getCategoriasGasto();
+  cont.innerHTML = categorias.length === 0
+    ? '<div class="empty-msg">Todavía no cargaste ninguna categoría de gasto.</div>'
+    : categorias.map(c => `
+        <div class="card estado-${c.activa ? 'verde' : 'gris'}" style="padding:12px 16px;">
+          <div class="encargado-row">
+            <strong>${c.nombre}</strong>
+            <div class="row-actions" style="margin-top:0;">
+              <span class="estado-tag estado-${c.activa ? 'verde' : 'gris'}">${c.activa ? 'Activa' : 'Inactiva'}</span>
+              <button class="secondary" data-action="toggle-activa-categoria" data-key="${c.id}">${c.activa ? 'Desactivar' : 'Activar'}</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+}
+
+// ---- Proveedores / entidades ----
+
+async function renderProveedores() {
+  const cont = document.getElementById('proveedores-lista');
+  const proveedores = await Repo.getProveedores();
+  cont.innerHTML = proveedores.length === 0
+    ? '<div class="empty-msg">Todavía no cargaste ningún proveedor.</div>'
+    : proveedores.map(p => `
+        <div class="card estado-${p.activo ? 'verde' : 'gris'}" style="padding:12px 16px;">
+          <div class="encargado-row">
+            <strong>${p.nombre}</strong>
+            <div class="row-actions" style="margin-top:0;">
+              <span class="estado-tag estado-${p.activo ? 'verde' : 'gris'}">${p.activo ? 'Activo' : 'Inactivo'}</span>
+              <button class="secondary" data-action="toggle-activo-proveedor" data-key="${p.id}">${p.activo ? 'Desactivar' : 'Activar'}</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+}
+
+// ---- Forma de pago (reutilizable: cola de aprobación y cola de pago) ----
+
+function opcionesFormaPago(seleccionada) {
+  return ['efectivo', 'transferencia', 'cheque'].map(v =>
+    `<option value="${v}"${v === seleccionada ? ' selected' : ''}>${FORMA_PAGO_LABEL[v]}</option>`
+  ).join('');
+}
+
+// "prefix" separa los ids entre la cola de aprobación ("gp") y la cola de
+// pago ("pp") para que no choquen cuando un mismo gasto aparece en las dos
+// (algo que no pasa en la práctica, pero mantiene los ids únicos siempre).
+function camposFormaPagoHTML(prefix, g) {
+  const idCheque = `${prefix}-cheque-${g.id}`;
+  return `
+    <label class="label" for="${prefix}-forma-${g.id}">Forma de pago</label>
+    <select id="${prefix}-forma-${g.id}" data-role="forma-pago-select" data-cheque-target="${idCheque}">${opcionesFormaPago(g.formaPago)}</select>
+    <div id="${idCheque}" style="display:${g.formaPago === 'cheque' ? 'block' : 'none'};">
+      <label class="label" for="${prefix}-cheque-num-${g.id}">Número de cheque</label>
+      <input type="text" id="${prefix}-cheque-num-${g.id}" value="${g.chequeNumero}">
+      <label class="label" for="${prefix}-cheque-firma-${g.id}">A nombre de quién es la firma</label>
+      <input type="text" id="${prefix}-cheque-firma-${g.id}" value="${g.chequeFirma}">
+    </div>
+  `;
+}
+
+document.addEventListener('change', (ev) => {
+  const sel = ev.target.closest('[data-role="forma-pago-select"]');
+  if (!sel) return;
+  const cont = document.getElementById(sel.dataset.chequeTarget);
+  if (cont) cont.style.display = sel.value === 'cheque' ? 'block' : 'none';
+});
+
+// ---- Cola de gastos pendientes de aprobación ----
+
+async function renderGastosPendientes() {
+  const cont = document.getElementById('gastos-pendientes-lista');
+  const [gastos, categorias, proveedores] = await Promise.all([Repo.getGastos(), Repo.getCategoriasGasto(), Repo.getProveedores()]);
+  const pendientes = gastos.filter(g => g.estado === 'pendiente');
+
+  if (pendientes.length === 0) {
+    cont.innerHTML = '<div class="empty-msg">No hay gastos pendientes de aprobación.</div>';
+    return;
+  }
+
+  const opcionesCategoria = categorias.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
+  const opcionesProveedor = proveedores.map(p => `<option value="${p.id}">${p.nombre}</option>`).join('');
+
+  cont.innerHTML = pendientes.map(g => `
+    <div class="card estado-amarillo" style="padding:14px 16px;">
+      <div style="font-size:12px;color:var(--texto-sec);margin-bottom:8px;">${g.encargadoNombre} — ${g.sucursal} · ${formatearFechaCorta(g.fecha)}</div>
+      <label class="label" for="gp-cat-${g.id}">Categoría</label>
+      <select id="gp-cat-${g.id}">${opcionesCategoria}</select>
+      <label class="label" for="gp-prov-${g.id}">Proveedor</label>
+      <select id="gp-prov-${g.id}">${opcionesProveedor}</select>
+      <label class="label" for="gp-monto-${g.id}">Monto</label>
+      <input type="number" id="gp-monto-${g.id}" value="${g.monto}">
+      <label class="label" for="gp-nota-${g.id}">Concepto</label>
+      <textarea id="gp-nota-${g.id}">${g.nota}</textarea>
+      ${camposFormaPagoHTML('gp', g)}
+      <div class="row-actions">
+        <button class="primary" data-action="aprobar-gasto" data-key="${g.id}">Aprobar</button>
+        <button class="secondary" data-action="rechazar-gasto" data-key="${g.id}">Rechazar</button>
+      </div>
+    </div>
+  `).join('');
+
+  // Deja preseleccionada la categoría y el proveedor que eligió el encargado.
+  pendientes.forEach(g => {
+    const selCat = document.getElementById(`gp-cat-${g.id}`);
+    if (selCat) selCat.value = g.categoriaId;
+    const selProv = document.getElementById(`gp-prov-${g.id}`);
+    if (selProv) selProv.value = g.proveedorId;
+  });
+}
+
+// ---- Cola de gastos aprobados pendientes de pago ----
+
+async function renderPagosPendientes() {
+  const cont = document.getElementById('pagos-pendientes-lista');
+  const gastos = await Repo.getGastos();
+  const pendientesPago = gastos.filter(g => g.estado === 'aprobado' && g.estadoPago === 'pendiente');
+
+  if (pendientesPago.length === 0) {
+    cont.innerHTML = '<div class="empty-msg">No hay gastos aprobados pendientes de pago.</div>';
+    return;
+  }
+
+  const totalPendiente = pendientesPago.reduce((s, g) => s + g.monto, 0);
+
+  cont.innerHTML = `
+    <div class="card" style="padding:14px 16px;margin-bottom:10px;">
+      <span class="label">Total pendiente de pago</span>
+      <div style="font-size:20px;font-weight:800;">$ ${formatearMonto(totalPendiente)}</div>
+    </div>
+  ` + pendientesPago.map(g => `
+    <div class="card estado-azul" style="padding:14px 16px;">
+      <div style="font-size:12px;color:var(--texto-sec);margin-bottom:4px;">${g.encargadoNombre} — ${g.sucursal} · ${formatearFechaCorta(g.fecha)}</div>
+      <div style="font-weight:600;">${g.categoriaNombre}${g.proveedorNombre ? ' — ' + g.proveedorNombre : ''}</div>
+      <div style="font-size:17px;font-weight:800;margin:4px 0;">$ ${formatearMonto(g.monto)}</div>
+      ${g.nota ? `<div class="historial-nota" style="margin-bottom:6px;">${g.nota}</div>` : ''}
+      ${camposFormaPagoHTML('pp', g)}
+      <div class="row-actions">
+        <button class="primary" data-action="marcar-pagado" data-key="${g.id}" style="width:100%;">Marcar como pagado</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ---- Informe de gastos por categoría y por sucursal ----
+
+async function renderInformeGastos() {
+  const desde = document.getElementById('informe-desde').value;
+  const hasta = document.getElementById('informe-hasta').value;
+  const gastos = await Repo.getGastos();
+
+  const porCategoria = agruparGastosAprobados(gastos, desde, hasta, 'categoriaNombre');
+  const porSucursalAnidado = agruparGastosAprobadosAnidado(gastos, desde, hasta, 'sucursal', 'categoriaNombre');
+  const total = porCategoria.reduce((s, x) => s + x.total, 0);
+
+  const contCat = document.getElementById('informe-gastos-categoria');
+  const contSuc = document.getElementById('informe-gastos-sucursal');
+
+  if (porCategoria.length === 0) {
+    contCat.innerHTML = '<div class="empty-msg">No hay gastos aprobados en ese rango de fechas.</div>';
+    contSuc.innerHTML = '';
+    return;
+  }
+
+  const filaHTML = (item, totalRef, color) => {
+    const pct = totalRef > 0 ? Math.round((item.total / totalRef) * 100) : 0;
+    return `
+      <div class="ranking-item">
+        <div class="ranking-nombre">${item.clave}</div>
+        <div class="ranking-barra-track"><div class="ranking-barra-fill" style="width:${pct}%;background:${color}"></div></div>
+        <div class="ranking-pct">$ ${formatearMonto(item.total)}</div>
+      </div>
+    `;
+  };
+
+  contCat.innerHTML = `
+    <div class="card" style="padding:14px 16px;margin-bottom:10px;">
+      <span class="label">Total aprobado en el rango</span>
+      <div style="font-size:22px;font-weight:800;">$ ${formatearMonto(total)}</div>
+    </div>
+    <div class="section-title" style="font-size:12px;margin:0 0 8px;">Por categoría</div>
+    ${porCategoria.map(item => filaHTML(item, total, 'var(--azul)')).join('')}
+  `;
+
+  // Por sucursal, y dentro de cada una, desglosado por categoría.
+  const bloqueSucursalHTML = porSucursalAnidado.map(suc => `
+    <div class="card" style="padding:14px 16px;margin-bottom:10px;">
+      <div class="card-top">
+        <strong>${suc.clave}</strong>
+        <span style="font-weight:800;">$ ${formatearMonto(suc.total)}</span>
+      </div>
+      <div style="margin-top:8px;">
+        ${suc.subgrupos.map(sub => filaHTML(sub, suc.total, 'var(--verde)')).join('')}
+      </div>
+    </div>
+  `).join('');
+  contSuc.innerHTML = `
+    <div class="section-title" style="font-size:12px;margin:16px 0 8px;">Por sucursal</div>
+    ${bloqueSucursalHTML}
+  `;
+}
+
+// Contenido de la pestaña "Gastos" cuando el usuario logueado es el
+// dueño (la otra mitad de esa pestaña, para un encargado, vive en
+// ui-encargado.js como renderGastosEncargado()).
+async function renderGastosDueno() {
+  try {
+    await renderCategoriasGasto();
+    await renderProveedores();
+    await renderGastosPendientes();
+    await renderPagosPendientes();
+    await renderInformeGastos();
+  } catch (e) {
+    console.error(e);
+    alert('No se pudieron cargar los datos de gastos. Revisá tu conexión e intentá de nuevo.');
+  }
+}
+
 async function renderDueno() {
   try {
     await renderResumenDueno();
@@ -518,5 +740,111 @@ document.addEventListener('click', (ev) => {
       renderResumenDueno();
       renderComparativo();
     }).catch(manejarErrorRepo);
+    return;
+  }
+
+  // --- Categorías de gasto ---
+  const crearCategoriaBtn = ev.target.closest('[data-action="crear-categoria-gasto"]');
+  if (crearCategoriaBtn) {
+    const input = document.getElementById('nueva-categoria-nombre');
+    const nombre = input.value.trim();
+    if (!nombre) { alert('Ingresá el nombre de la categoría.'); return; }
+    Repo.crearCategoriaGasto(nombre).then(() => {
+      input.value = '';
+      renderCategoriasGasto();
+      poblarSelectCategoriaGasto();
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  const toggleActivaCatBtn = ev.target.closest('[data-action="toggle-activa-categoria"]');
+  if (toggleActivaCatBtn) {
+    const key = toggleActivaCatBtn.dataset.key;
+    Repo.getCategoriasGasto().then(categorias => {
+      const cat = categorias.find(c => c.id === key);
+      return Repo.editarCategoriaGasto(key, { activa: !cat.activa });
+    }).then(() => {
+      renderCategoriasGasto();
+      poblarSelectCategoriaGasto();
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  // --- Proveedores ---
+  const crearProveedorBtn = ev.target.closest('[data-action="crear-proveedor"]');
+  if (crearProveedorBtn) {
+    const input = document.getElementById('nuevo-proveedor-nombre');
+    const nombre = input.value.trim();
+    if (!nombre) { alert('Ingresá el nombre del proveedor.'); return; }
+    Repo.crearProveedor(nombre).then(() => {
+      input.value = '';
+      renderProveedores();
+      poblarSelectProveedor();
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  const toggleActivoProvBtn = ev.target.closest('[data-action="toggle-activo-proveedor"]');
+  if (toggleActivoProvBtn) {
+    const key = toggleActivoProvBtn.dataset.key;
+    Repo.getProveedores().then(proveedores => {
+      const prov = proveedores.find(p => p.id === key);
+      return Repo.editarProveedor(key, { activo: !prov.activo });
+    }).then(() => {
+      renderProveedores();
+      poblarSelectProveedor();
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  // --- Aprobar / rechazar gastos pendientes ---
+  const aprobarGastoBtn = ev.target.closest('[data-action="aprobar-gasto"]');
+  const rechazarGastoBtn = ev.target.closest('[data-action="rechazar-gasto"]');
+  if (aprobarGastoBtn || rechazarGastoBtn) {
+    const btn = aprobarGastoBtn || rechazarGastoBtn;
+    const key = btn.dataset.key;
+    const estado = aprobarGastoBtn ? 'aprobado' : 'rechazado';
+    const categoriaId = document.getElementById(`gp-cat-${key}`).value;
+    const proveedorId = document.getElementById(`gp-prov-${key}`).value;
+    const monto = document.getElementById(`gp-monto-${key}`).value;
+    const nota = document.getElementById(`gp-nota-${key}`).value;
+    const formaPago = document.getElementById(`gp-forma-${key}`).value;
+    const chequeNumero = document.getElementById(`gp-cheque-num-${key}`).value;
+    const chequeFirma = document.getElementById(`gp-cheque-firma-${key}`).value;
+    if (!monto || Number(monto) <= 0) { alert('El monto tiene que ser mayor a cero.'); return; }
+    if (formaPago === 'cheque' && (!chequeNumero || !chequeFirma)) {
+      alert('Completá el número de cheque y la firma antes de continuar.');
+      return;
+    }
+    Repo.revisarGasto(key, { estado, categoriaId, proveedorId, monto, nota, formaPago, chequeNumero, chequeFirma }).then(() => {
+      renderGastosPendientes();
+      renderPagosPendientes();
+      renderInformeGastos();
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  // --- Marcar gasto como pagado ---
+  const marcarPagadoBtn = ev.target.closest('[data-action="marcar-pagado"]');
+  if (marcarPagadoBtn) {
+    const key = marcarPagadoBtn.dataset.key;
+    const formaPago = document.getElementById(`pp-forma-${key}`).value;
+    const chequeNumero = document.getElementById(`pp-cheque-num-${key}`).value;
+    const chequeFirma = document.getElementById(`pp-cheque-firma-${key}`).value;
+    if (formaPago === 'cheque' && (!chequeNumero || !chequeFirma)) {
+      alert('Completá el número de cheque y la firma antes de marcarlo como pagado.');
+      return;
+    }
+    Repo.marcarGastoPagado(key, { formaPago, chequeNumero, chequeFirma }).then(() => {
+      renderPagosPendientes();
+      renderInformeGastos();
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  // --- Informe de gastos ---
+  const filtrarInformeBtn = ev.target.closest('[data-action="filtrar-informe-gastos"]');
+  if (filtrarInformeBtn) {
+    renderInformeGastos().catch(manejarErrorRepo);
   }
 });
