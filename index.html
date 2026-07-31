@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>Control Diario — ALISTA AHORRO</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<div id="pantalla-login">
+  <div class="login-wrap">
+    <div class="login-titulo">Control Diario</div>
+    <div class="login-sub">ALISTA AHORRO — ingresá con el usuario y contraseña que te dio el dueño.</div>
+    <div class="card">
+      <label class="label" for="login-email">Email</label>
+      <input type="email" id="login-email" placeholder="tu.usuario@alista.local" autocomplete="username">
+      <label class="label" for="login-password">Contraseña</label>
+      <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
+      <div id="login-error" class="login-error" style="display:none;"></div>
+      <div class="row-actions">
+        <button class="primary" id="btn-login" style="width:100%;">Ingresar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="app-shell" style="display:none;">
+
+<header class="topbar">
+  <div>
+    <h1>Control Diario</h1>
+    <div class="sub" id="fecha-hoy"></div>
+  </div>
+  <button class="reset-btn" id="btn-logout">Cerrar sesión</button>
+</header>
+
+<main id="main">
+
+  <section id="view-encargado" class="view active">
+    <p class="hint">Este es tu progreso del mes. La carga de tickets la hace el dueño.</p>
+    <div id="encargado-lista"></div>
+  </section>
+
+  <section id="view-dueno" class="view">
+    <div class="summary-bar" id="dueno-resumen"></div>
+
+    <div class="section-title">Encargados</div>
+    <div id="encargados-lista"></div>
+    <div class="card">
+      <div class="card-title" style="margin-bottom:12px;">Agregar encargado</div>
+      <label class="label" for="nuevo-enc-nombre">Nombre</label>
+      <input type="text" id="nuevo-enc-nombre" placeholder="Ej: Laura Fernández">
+      <label class="label" for="nuevo-enc-sucursal">Sucursal</label>
+      <input type="text" id="nuevo-enc-sucursal" placeholder="Ej: Sucursal Sur">
+      <label class="label" for="nuevo-enc-userid">ID de usuario (Supabase Auth)</label>
+      <input type="text" id="nuevo-enc-userid" placeholder="Pegá el UUID después de crearle una cuenta">
+      <p class="hint" style="margin-top:-4px;">Primero creale una cuenta en Authentication &gt; Users del dashboard de Supabase, copiá su UUID y pegalo acá. Si todavía no le creaste la cuenta, dejalo vacío y volvé a editarlo después.</p>
+      <div class="row-actions">
+        <button class="primary" data-action="crear-encargado" style="width:100%;">Agregar encargado</button>
+      </div>
+    </div>
+
+    <div class="section-title">Crear objetivo de progreso</div>
+    <div class="card">
+      <label class="label" for="nuevo-obj-encargado">Encargado</label>
+      <select id="nuevo-obj-encargado"></select>
+      <label class="label" for="nuevo-titulo">Título</label>
+      <input type="text" id="nuevo-titulo" placeholder="Ej: Tickets del mes">
+      <div class="field-row">
+        <div>
+          <label class="label" for="nuevo-meta">Meta</label>
+          <input type="number" id="nuevo-meta" placeholder="Ej: 2900">
+        </div>
+        <div>
+          <label class="label" for="nuevo-unidad">Unidad</label>
+          <input type="text" id="nuevo-unidad" placeholder="tickets, $...">
+        </div>
+      </div>
+      <label class="label" for="nuevo-mes">Mes objetivo</label>
+      <input type="month" id="nuevo-mes">
+      <label class="label">Días no laborales del mes</label>
+      <p class="hint" style="margin-top:-4px;">Tocá los días que NO trabaja (por defecto vienen marcados los domingos). El resto se cuenta como día hábil.</p>
+      <div id="calendario-nuevo-objetivo"></div>
+      <div class="row-actions">
+        <button class="primary" data-action="crear-objetivo-progreso" style="width:100%;">Crear objetivo</button>
+      </div>
+    </div>
+
+    <div class="section-title">Carga rápida de tickets de hoy</div>
+    <p class="hint">Un número por local, para el día de hoy. Los encargados pausados no aparecen acá.</p>
+    <div id="carga-rapida-lista"></div>
+
+    <div class="section-title">Dashboard de progreso</div>
+    <div id="progreso-lista"></div>
+
+    <div class="section-title">Comparativo de encargados</div>
+    <p class="hint">Ranking del mes por % de avance a la meta, y tickets cargados por día en la última semana. Los encargados pausados no se incluyen.</p>
+    <div id="ranking-lista"></div>
+    <div id="chart-tickets-dia"></div>
+  </section>
+
+</main>
+
+<nav class="bottom-nav">
+  <button class="nav-btn active" data-view="encargado" id="nav-btn-encargado">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"></circle><path d="M4 20c0-4 3.5-7 8-7s8 3 8 7"></path></svg>
+    Encargado
+  </button>
+  <button class="nav-btn" data-view="dueno" id="nav-btn-dueno">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V10"></path><path d="M10 20V4"></path><path d="M16 20v-7"></path><path d="M3 20h18"></path></svg>
+    Dueño
+  </button>
+</nav>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/config.js"></script>
+<script src="js/helpers.js"></script>
+<script src="js/data.js"></script>
+<script src="js/ui-encargado.js"></script>
+<script src="js/ui-dueno.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

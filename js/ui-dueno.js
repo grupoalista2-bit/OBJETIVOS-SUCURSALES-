@@ -1,0 +1,522 @@
+// Vista Dueño: administra encargados (con edición, pausa y vínculo a su
+// usuario de Supabase), crea objetivos mensuales de tickets con calendario
+// de días no laborales, carga los tickets día a día, ve el dashboard de
+// progreso, y compara encargados entre sí. El acceso a esta vista ya está
+// filtrado en app.js según el rol del usuario logueado, y reforzado por
+// Row Level Security en la base: si alguien sin permiso de dueño llegara
+// a esta pantalla, cada Repo.* que intente escribir va a fallar igual.
+
+function nombreEncargado(encargados, encargadoId) {
+  const enc = encargados.find(e => e.id === encargadoId);
+  return enc ? `${enc.nombre} — ${enc.sucursal}` : '(encargado eliminado)';
+}
+
+async function renderResumenDueno() {
+  const encargados = await Repo.getEncargados();
+  const objetivos = await Repo.getObjetivosProgreso();
+
+  let sumAvance = 0, enRiesgo = 0;
+  objetivos.forEach(obj => {
+    const { avance, superado, r } = resumenObjetivoProgreso(obj);
+    sumAvance += avance;
+    if (!superado && !r.enRitmo) enRiesgo++;
+  });
+  const avancePromedio = objetivos.length > 0 ? Math.round(sumAvance / objetivos.length) : 0;
+  const activos = encargados.filter(e => e.activo).length;
+
+  document.getElementById('dueno-resumen').innerHTML = `
+    <div class="summary-card"><div class="num">${activos}/${encargados.length}</div><div class="lbl">Encargados activos</div></div>
+    <div class="summary-card"><div class="num">${objetivos.length}</div><div class="lbl">Objetivos activos</div></div>
+    <div class="summary-card"><div class="num" style="color:${avancePromedio >= 70 ? 'var(--verde)' : 'var(--rojo)'}">${avancePromedio}%</div><div class="lbl">Avance promedio</div></div>
+    <div class="summary-card"><div class="num" style="color:var(--rojo)">${enRiesgo}</div><div class="lbl">Atrasados</div></div>
+  `;
+}
+
+async function renderEncargadosLista() {
+  const encargados = await Repo.getEncargados();
+  const cont = document.getElementById('encargados-lista');
+
+  cont.innerHTML = encargados.length === 0
+    ? '<div class="empty-msg">Todavía no agregaste ningún encargado.</div>'
+    : encargados.map(e => `
+        <div class="card estado-${e.activo ? 'verde' : 'gris'}" style="padding:12px 16px;">
+          <div class="encargado-row">
+            <div class="datos">
+              <strong>${e.nombre}</strong>
+              <div style="font-size:12px;color:var(--texto-sec);">${e.sucursal}</div>
+              <span class="estado-tag estado-${e.activo ? 'verde' : 'gris'}" style="margin-top:6px;display:inline-block;">${e.activo ? 'Activo' : 'Pausado'}</span>
+              ${e.userId ? '<span class="estado-tag estado-azul" style="margin-top:6px;margin-left:6px;display:inline-block;">Cuenta vinculada</span>' : '<span class="estado-tag estado-gris" style="margin-top:6px;margin-left:6px;display:inline-block;">Sin vincular</span>'}
+            </div>
+            <div class="row-actions" style="margin-top:0;">
+              <button class="secondary" data-action="toggle-editar-encargado" data-key="${e.id}">Editar</button>
+              <button class="secondary" data-action="toggle-pausa-encargado" data-key="${e.id}">${e.activo ? 'Pausar' : 'Reactivar'}</button>
+            </div>
+          </div>
+          <div id="editar-enc-${e.id}" style="display:none;margin-top:12px;">
+            <label class="label" for="editar-enc-nombre-${e.id}">Nombre</label>
+            <input type="text" id="editar-enc-nombre-${e.id}" value="${e.nombre}">
+            <label class="label" for="editar-enc-sucursal-${e.id}">Sucursal</label>
+            <input type="text" id="editar-enc-sucursal-${e.id}" value="${e.sucursal}">
+            <label class="label" for="editar-enc-userid-${e.id}">ID de usuario (Supabase Auth)</label>
+            <input type="text" id="editar-enc-userid-${e.id}" value="${e.userId}" placeholder="Pegá acá el UUID del usuario que creaste para esta persona">
+            <p class="hint" style="margin-top:-4px;">Se copia desde Authentication &gt; Users en el dashboard de Supabase. Dejalo vacío si todavía no le creaste una cuenta.</p>
+            <div class="row-actions">
+              <button class="primary" data-action="guardar-edicion-encargado" data-key="${e.id}" style="width:100%;">Guardar cambios</button>
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+  const sel = document.getElementById('nuevo-obj-encargado');
+  const prev = sel.value;
+  sel.innerHTML = '';
+  if (encargados.length === 0) {
+    sel.innerHTML = '<option value="">Agregá un encargado primero</option>';
+  } else {
+    encargados.forEach(e => {
+      const opt = document.createElement('option');
+      opt.value = e.id;
+      opt.textContent = `${e.nombre} — ${e.sucursal}${e.activo ? '' : ' (pausado)'}`;
+      sel.appendChild(opt);
+    });
+    if (prev && encargados.some(e => e.id === prev)) sel.value = prev;
+  }
+}
+
+// ---- Calendario de días no laborales (reutilizable: creación y edición) ----
+// "contexto" es 'nuevo' para el formulario de alta, o el id del objetivo
+// cuando se está editando uno ya creado. Cada contexto tiene su propio Set.
+
+const calendarios = { nuevo: new Set() };
+
+function construirCalendarioHTML(mesISO, seleccionados, contexto) {
+  const [anio, mes] = mesISO.split('-').map(Number);
+  const ultimoDia = new Date(anio, mes, 0).getDate();
+  const primerDiaSemana = new Date(anio, mes - 1, 1).getDay(); // 0 = domingo
+  const offset = (primerDiaSemana + 6) % 7; // semana empieza en lunes
+
+  const nombresDow = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+  let html = '<div class="calendario">';
+  nombresDow.forEach(d => { html += `<div class="dow">${d}</div>`; });
+  for (let i = 0; i < offset; i++) html += '<div class="dia vacio"></div>';
+  for (let dia = 1; dia <= ultimoDia; dia++) {
+    const fecha = `${mesISO}-${String(dia).padStart(2, '0')}`;
+    const libre = seleccionados.has(fecha);
+    html += `<button type="button" class="dia${libre ? ' libre' : ''}" data-fecha="${fecha}" data-contexto="${contexto}">${dia}</button>`;
+  }
+  html += '</div>';
+  return html;
+}
+
+// Por defecto vienen marcados los domingos del mes elegido, como punto de
+// partida — el dueño destilda o marca otros días según haga falta.
+function diasDomingoDelMes(mesISO) {
+  const [anio, mes] = mesISO.split('-').map(Number);
+  const ultimoDia = new Date(anio, mes, 0).getDate();
+  const domingos = [];
+  for (let dia = 1; dia <= ultimoDia; dia++) {
+    if (new Date(anio, mes - 1, dia).getDay() === 0) domingos.push(`${mesISO}-${String(dia).padStart(2, '0')}`);
+  }
+  return domingos;
+}
+
+function renderCalendarioNuevoObjetivo() {
+  const mesISO = document.getElementById('nuevo-mes').value || mesActualISO();
+  document.getElementById('calendario-nuevo-objetivo').innerHTML = construirCalendarioHTML(mesISO, calendarios.nuevo, 'nuevo');
+}
+
+document.getElementById('nuevo-mes').addEventListener('change', (ev) => {
+  calendarios.nuevo = new Set(diasDomingoDelMes(ev.target.value));
+  renderCalendarioNuevoObjetivo();
+});
+
+// ---- Carga rápida de tickets de hoy ----
+
+async function renderCargaRapida() {
+  const objetivos = await Repo.getObjetivosProgreso();
+  const encargados = await Repo.getEncargados();
+  const cont = document.getElementById('carga-rapida-lista');
+
+  const activos = objetivos.filter(obj => {
+    const enc = encargados.find(e => e.id === obj.encargadoId);
+    return enc && enc.activo;
+  });
+
+  if (activos.length === 0) {
+    cont.innerHTML = '<div class="empty-msg">No hay objetivos de encargados activos para cargar hoy.</div>';
+    return;
+  }
+
+  const hoy = hoyISO();
+  cont.innerHTML = activos.map(obj => {
+    const entradaHoy = obj.historial.find(h => h.fecha === hoy);
+    return `
+      <div class="card" style="padding:12px 16px;">
+        <div style="font-weight:600;">${obj.titulo}</div>
+        <div style="font-size:12px;color:var(--texto-sec);margin-bottom:8px;">${nombreEncargado(encargados, obj.encargadoId)}</div>
+        <div class="field-row">
+          <div>
+            <input type="number" id="rapida-${obj.id}" placeholder="Tickets de hoy" value="${entradaHoy ? entradaHoy.valor : ''}">
+          </div>
+          <div style="flex:0 0 auto;">
+            <button class="primary" data-action="guardar-rapida" data-key="${obj.id}">Guardar</button>
+          </div>
+        </div>
+        ${entradaHoy ? `<div class="hint" style="margin:0;">Ya cargado hoy: ${entradaHoy.valor} ${obj.unidad}. Guardar de nuevo lo reemplaza.</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+// ---- Dashboard de progreso ----
+
+async function renderProgreso() {
+  const objetivos = await Repo.getObjetivosProgreso();
+  const encargados = await Repo.getEncargados();
+  const cont = document.getElementById('progreso-lista');
+
+  if (objetivos.length === 0) {
+    cont.innerHTML = '<div class="empty-msg">Todavía no creaste ningún objetivo de progreso.</div>';
+    return;
+  }
+
+  cont.innerHTML = '';
+  objetivos.forEach(obj => {
+    const { avance, superado, r, unidad, mensajeEstado, colorCard } = resumenObjetivoProgreso(obj);
+    const enc = encargados.find(e => e.id === obj.encargadoId);
+    const pausadoTag = enc && !enc.activo ? ' <span class="estado-tag estado-gris">Pausado</span>' : '';
+
+    const historialHTML = obj.historial.length === 0
+      ? '<div class="empty-msg">Sin cargas todavía.</div>'
+      : obj.historial.map(h => `
+          <div class="historial-row">
+            <span>${formatearFechaCorta(h.fecha)}</span>
+            <strong>${h.valor} ${unidad}</strong>
+          </div>
+          ${h.nota ? `<div class="historial-nota">${h.nota}</div>` : ''}
+        `).join('');
+
+    const card = document.createElement('div');
+    card.className = `card estado-${colorCard}`;
+    card.innerHTML = `
+      <div class="card-top">
+        <div>
+          <div class="card-title">${obj.titulo}${pausadoTag}</div>
+          <div style="font-size:12px;color:var(--texto-sec);">${nombreEncargado(encargados, obj.encargadoId)}</div>
+        </div>
+        <span class="estado-tag estado-${superado ? 'verde' : 'azul'}">${avance}%${superado ? ' · meta alcanzada' : ''}</span>
+      </div>
+      <div class="meta-grid">
+        <div><span class="label">Meta</span>${obj.meta} ${unidad}</div>
+        <div><span class="label">Llevás</span>${obj.valorActual} ${unidad}</div>
+        <div><span class="label">Mes</span>${formatearMes(obj.mes)}</div>
+        <div><span class="label">Días no laborales</span>${formatearListaFechasCorta(obj.diasNoLaborales)}</div>
+      </div>
+      <div class="progress-track"><div class="progress-fill" style="width:${avance}%"></div></div>
+      <div class="meta-grid">
+        <div><span class="label">Días hábiles del mes</span>${r.totalHabiles}</div>
+        <div><span class="label">Transcurridos</span>${r.habilesTranscurridos}</div>
+        <div><span class="label">Restantes</span>${r.habilesRestantes}</div>
+        <div><span class="label">Deberías llevar hoy</span>${r.avanceEsperado} ${unidad}</div>
+      </div>
+      <div class="decision-note" style="background:${r.enRitmo || r.faltante <= 0 ? 'var(--verde-bg)' : 'var(--rojo-bg)'};color:${r.enRitmo || r.faltante <= 0 ? 'var(--verde)' : 'var(--rojo)'};">
+        ${mensajeEstado}
+      </div>
+      <div class="row-actions">
+        <button class="secondary" data-action="toggle-carga" data-key="${obj.id}">Cargar / corregir un día</button>
+        <button class="secondary" data-action="toggle-historial" data-key="${obj.id}">Historial (${obj.historial.length})</button>
+        <button class="secondary" data-action="toggle-editar-objetivo" data-key="${obj.id}">Editar objetivo</button>
+      </div>
+      <div id="carga-${obj.id}" style="display:none;margin-top:10px;">
+        <label class="label" for="fecha-${obj.id}">Fecha</label>
+        <input type="date" id="fecha-${obj.id}" value="${hoyISO()}">
+        <label class="label" for="valor-${obj.id}">Tickets de ese día${unidad ? ' (' + unidad + ')' : ''}</label>
+        <input type="number" id="valor-${obj.id}">
+        <label class="label" for="nota-${obj.id}">Nota (opcional)</label>
+        <textarea id="nota-${obj.id}" placeholder="Ej: se corrige el número cargado el viernes..."></textarea>
+        <div class="row-actions">
+          <button class="primary" data-action="guardar-avance" data-key="${obj.id}" style="width:100%;">Guardar</button>
+        </div>
+      </div>
+      <div id="historial-${obj.id}" style="display:none;margin-top:10px;">${historialHTML}</div>
+      <div id="editar-${obj.id}" style="display:none;margin-top:10px;">
+        <label class="label" for="editar-titulo-${obj.id}">Título</label>
+        <input type="text" id="editar-titulo-${obj.id}" value="${obj.titulo}">
+        <div class="field-row">
+          <div>
+            <label class="label" for="editar-meta-${obj.id}">Meta</label>
+            <input type="number" id="editar-meta-${obj.id}" value="${obj.meta}">
+          </div>
+          <div>
+            <label class="label" for="editar-unidad-${obj.id}">Unidad</label>
+            <input type="text" id="editar-unidad-${obj.id}" value="${obj.unidad}">
+          </div>
+        </div>
+        <p class="hint" style="margin-top:-2px;">Mes objetivo: ${formatearMes(obj.mes)} (no se puede cambiar el mes de un objetivo con historial cargado; creá uno nuevo para otro mes).</p>
+        <label class="label">Días no laborales</label>
+        <div id="calendario-${obj.id}"></div>
+        <div class="row-actions">
+          <button class="primary" data-action="guardar-edicion-objetivo" data-key="${obj.id}" style="width:100%;">Guardar cambios</button>
+        </div>
+      </div>
+    `;
+    cont.appendChild(card);
+  });
+}
+
+// ---- Comparativo de encargados ----
+
+const COLORES_SERIE = ['#2563eb', '#16a34a', '#dc2626', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#78350f'];
+
+async function renderComparativo() {
+  const todos = await Repo.getObjetivosProgreso();
+  const encargados = await Repo.getEncargados();
+  const mesHoy = mesActualISO();
+  const activos = todos.filter(o => {
+    if (o.mes !== mesHoy) return false;
+    const enc = encargados.find(e => e.id === o.encargadoId);
+    return enc && enc.activo;
+  });
+
+  const rankingCont = document.getElementById('ranking-lista');
+  const chartCont = document.getElementById('chart-tickets-dia');
+
+  if (activos.length === 0) {
+    rankingCont.innerHTML = '<div class="empty-msg">No hay objetivos de encargados activos este mes para comparar.</div>';
+    chartCont.innerHTML = '';
+    return;
+  }
+
+  // Ranking por % de avance a la meta, de mejor a peor.
+  const ordenados = activos
+    .map(obj => ({ obj, resumen: resumenObjetivoProgreso(obj) }))
+    .sort((a, b) => b.resumen.avance - a.resumen.avance);
+
+  const colorVar = { verde: 'var(--verde)', azul: 'var(--azul)', rojo: 'var(--rojo)' };
+  rankingCont.innerHTML = ordenados.map(({ obj, resumen }) => `
+    <div class="ranking-item">
+      <div class="ranking-nombre">${nombreEncargado(encargados, obj.encargadoId)}</div>
+      <div class="ranking-barra-track"><div class="ranking-barra-fill" style="width:${resumen.avance}%;background:${colorVar[resumen.colorCard]}"></div></div>
+      <div class="ranking-pct">${resumen.avance}%</div>
+    </div>
+  `).join('');
+
+  // Tickets por día, últimos 7 días, un color por objetivo activo.
+  const dias = ultimosNDias(7);
+  const series = activos.map((obj, idx) => ({
+    obj,
+    color: COLORES_SERIE[idx % COLORES_SERIE.length],
+    valores: dias.map(d => {
+      const h = obj.historial.find(x => x.fecha === d);
+      return h ? h.valor : 0;
+    }),
+  }));
+  const maxValor = Math.max(1, ...series.flatMap(s => s.valores));
+
+  const leyendaHTML = series.map(s => `
+    <span class="leyenda-item"><span class="leyenda-dot" style="background:${s.color}"></span>${nombreEncargado(encargados, s.obj.encargadoId)}</span>
+  `).join('');
+
+  const columnasHTML = dias.map((dia, i) => {
+    const barrasHTML = series.map(s => {
+      const valor = s.valores[i];
+      const alturaPct = Math.round((valor / maxValor) * 100);
+      return `<div class="chart-barra" style="height:${alturaPct}%;background:${s.color};" title="${nombreEncargado(encargados, s.obj.encargadoId)} — ${formatearFechaCorta(dia)}: ${valor} ${s.obj.unidad}"></div>`;
+    }).join('');
+    return `
+      <div class="chart-columna">
+        <div class="chart-barras">${barrasHTML}</div>
+        <div class="chart-fecha-label">${dia.slice(8, 10)}/${dia.slice(5, 7)}</div>
+      </div>
+    `;
+  }).join('');
+
+  chartCont.innerHTML = `
+    <div class="chart-leyenda">${leyendaHTML}</div>
+    <div class="chart-grid">${columnasHTML}</div>
+  `;
+}
+
+async function renderDueno() {
+  try {
+    await renderResumenDueno();
+    await renderEncargadosLista();
+    renderCalendarioNuevoObjetivo();
+    await renderCargaRapida();
+    await renderProgreso();
+    await renderComparativo();
+  } catch (e) {
+    console.error(e);
+    alert('No se pudieron cargar los datos del panel. Revisá tu conexión e intentá de nuevo.');
+  }
+}
+
+document.addEventListener('click', (ev) => {
+  // --- Calendario (creación o edición) ---
+  const diaBtn = ev.target.closest('.calendario .dia:not(.vacio)');
+  if (diaBtn) {
+    const fecha = diaBtn.dataset.fecha;
+    const contexto = diaBtn.dataset.contexto;
+    if (!calendarios[contexto]) calendarios[contexto] = new Set();
+    const set = calendarios[contexto];
+    if (set.has(fecha)) set.delete(fecha); else set.add(fecha);
+    diaBtn.classList.toggle('libre');
+    return;
+  }
+
+  // --- Encargados ---
+  const crearEncBtn = ev.target.closest('[data-action="crear-encargado"]');
+  if (crearEncBtn) {
+    const nombre = document.getElementById('nuevo-enc-nombre').value.trim();
+    const sucursal = document.getElementById('nuevo-enc-sucursal').value.trim();
+    const userId = document.getElementById('nuevo-enc-userid').value.trim();
+    if (!nombre) { alert('Ingresá el nombre del encargado.'); return; }
+    Repo.crearEncargado({ nombre, sucursal, userId }).then(() => {
+      document.getElementById('nuevo-enc-nombre').value = '';
+      document.getElementById('nuevo-enc-sucursal').value = '';
+      document.getElementById('nuevo-enc-userid').value = '';
+      renderEncargadosLista();
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  const toggleEditarEncBtn = ev.target.closest('[data-action="toggle-editar-encargado"]');
+  if (toggleEditarEncBtn) {
+    const el = document.getElementById('editar-enc-' + toggleEditarEncBtn.dataset.key);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+
+  const guardarEdicionEncBtn = ev.target.closest('[data-action="guardar-edicion-encargado"]');
+  if (guardarEdicionEncBtn) {
+    const key = guardarEdicionEncBtn.dataset.key;
+    const nombre = document.getElementById(`editar-enc-nombre-${key}`).value.trim();
+    const sucursal = document.getElementById(`editar-enc-sucursal-${key}`).value.trim();
+    const userId = document.getElementById(`editar-enc-userid-${key}`).value.trim();
+    if (!nombre) { alert('El nombre no puede quedar vacío.'); return; }
+    Repo.editarEncargado(key, { nombre, sucursal, userId }).then(() => {
+      renderEncargadosLista();
+      renderProgreso();
+      renderCargaRapida();
+      renderComparativo();
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  const togglePausaBtn = ev.target.closest('[data-action="toggle-pausa-encargado"]');
+  if (togglePausaBtn) {
+    Repo.togglePausaEncargado(togglePausaBtn.dataset.key).then(() => {
+      renderEncargadosLista();
+      renderResumenDueno();
+      renderCargaRapida();
+      renderProgreso();
+      renderComparativo();
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  // --- Crear objetivo ---
+  const crearObjBtn = ev.target.closest('[data-action="crear-objetivo-progreso"]');
+  if (crearObjBtn) {
+    const encargadoId = document.getElementById('nuevo-obj-encargado').value;
+    const titulo = document.getElementById('nuevo-titulo').value.trim();
+    const meta = document.getElementById('nuevo-meta').value;
+    const unidad = document.getElementById('nuevo-unidad').value;
+    const mes = document.getElementById('nuevo-mes').value;
+    const diasNoLaborales = Array.from(calendarios.nuevo || []);
+    if (!encargadoId) { alert('Agregá y elegí un encargado primero.'); return; }
+    if (!titulo || !meta || Number(meta) <= 0) { alert('Completá un título y una meta mayor a cero.'); return; }
+    Repo.crearObjetivoProgreso({ encargadoId, titulo, meta, unidad, mes, diasNoLaborales }).then(() => {
+      document.getElementById('nuevo-titulo').value = '';
+      document.getElementById('nuevo-meta').value = '';
+      document.getElementById('nuevo-unidad').value = '';
+      document.getElementById('nuevo-mes').value = mesActualISO();
+      calendarios.nuevo = new Set(diasDomingoDelMes(mesActualISO()));
+      renderCalendarioNuevoObjetivo();
+      renderCargaRapida();
+      renderProgreso();
+      renderResumenDueno();
+      renderComparativo();
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  // --- Editar objetivo ---
+  const toggleEditarObjBtn = ev.target.closest('[data-action="toggle-editar-objetivo"]');
+  if (toggleEditarObjBtn) {
+    const key = toggleEditarObjBtn.dataset.key;
+    const el = document.getElementById('editar-' + key);
+    const abrir = el.style.display === 'none';
+    el.style.display = abrir ? 'block' : 'none';
+    if (abrir) {
+      Repo.getObjetivosProgreso().then(lista => {
+        const obj = lista.find(o => o.id === key);
+        calendarios[key] = new Set(obj.diasNoLaborales);
+        document.getElementById(`calendario-${key}`).innerHTML = construirCalendarioHTML(obj.mes, calendarios[key], key);
+      }).catch(manejarErrorRepo);
+    }
+    return;
+  }
+
+  const guardarEdicionObjBtn = ev.target.closest('[data-action="guardar-edicion-objetivo"]');
+  if (guardarEdicionObjBtn) {
+    const key = guardarEdicionObjBtn.dataset.key;
+    const titulo = document.getElementById(`editar-titulo-${key}`).value.trim();
+    const meta = document.getElementById(`editar-meta-${key}`).value;
+    const unidad = document.getElementById(`editar-unidad-${key}`).value;
+    const diasNoLaborales = Array.from(calendarios[key] || []);
+    if (!titulo || !meta || Number(meta) <= 0) { alert('Completá un título y una meta mayor a cero.'); return; }
+    Repo.editarObjetivoProgreso(key, { titulo, meta, unidad, diasNoLaborales }).then(() => {
+      renderProgreso();
+      renderCargaRapida();
+      renderResumenDueno();
+      renderComparativo();
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  // --- Carga rápida ---
+  const rapidaBtn = ev.target.closest('[data-action="guardar-rapida"]');
+  if (rapidaBtn) {
+    const key = rapidaBtn.dataset.key;
+    const input = document.getElementById(`rapida-${key}`);
+    if (!input.value) { alert('Ingresá un número de tickets.'); return; }
+    Repo.cargarTicketsDelDia(key, hoyISO(), input.value, '').then(() => {
+      renderCargaRapida();
+      renderProgreso();
+      renderResumenDueno();
+      renderComparativo();
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  // --- Toggles del dashboard ---
+  const toggleCargaBtn = ev.target.closest('[data-action="toggle-carga"]');
+  if (toggleCargaBtn) {
+    const el = document.getElementById('carga-' + toggleCargaBtn.dataset.key);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+
+  const toggleHistorialBtn = ev.target.closest('[data-action="toggle-historial"]');
+  if (toggleHistorialBtn) {
+    const el = document.getElementById('historial-' + toggleHistorialBtn.dataset.key);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+
+  const guardarAvanceBtn = ev.target.closest('[data-action="guardar-avance"]');
+  if (guardarAvanceBtn) {
+    const key = guardarAvanceBtn.dataset.key;
+    const fechaInput = document.getElementById(`fecha-${key}`);
+    const valorInput = document.getElementById(`valor-${key}`);
+    const notaInput = document.getElementById(`nota-${key}`);
+    if (!fechaInput.value || !valorInput.value) { alert('Completá la fecha y el valor.'); return; }
+    Repo.cargarTicketsDelDia(key, fechaInput.value, valorInput.value, notaInput.value).then(() => {
+      renderCargaRapida();
+      renderProgreso();
+      renderResumenDueno();
+      renderComparativo();
+    }).catch(manejarErrorRepo);
+  }
+});
