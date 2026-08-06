@@ -25,10 +25,16 @@ Si ya tenías la app funcionando y agregás este módulo después, hace falta co
 
 ## Propósito, misión y visión + progreso semanal (actualización)
 
-- **Identidad institucional.** En la pestaña Dueño hay una sección "Propósito, misión y visión" donde el dueño carga el texto de cada una. Por sí solo no le aparece a nadie: en la ficha de cada encargado (botón "Editar" dentro de "Encargados") hay 3 casilleros — Propósito, Misión, Visión — para elegir cuál de los tres puede ver esa persona en particular. Al que tiene alguno tildado, ese texto le aparece arriba de todo en su pestaña Encargado, cada vez que entra a la app.
+- **Identidad institucional.** En la pestaña Dueño hay una sección "Propósito, misión y visión" donde el dueño carga el texto de cada una. Por sí solo no le aparece a nadie: en la ficha de cada encargado (botón "Editar" dentro de "Colaboradores") hay casilleros — Propósito, Misión, Visión, Valores — para elegir cuál de los cuatro puede ver esa persona en particular. Al que tiene alguno tildado, ese texto le aparece arriba de todo en su pestaña Encargado, cada vez que entra a la app.
 - **Progreso semanal.** Cada tarjeta de objetivo (tanto en el dashboard del dueño como en la vista de solo lectura del encargado) tiene un botón "Progreso semanal" que reparte la meta del mes entre las semanas (lunes a domingo) en proporción a los días hábiles de cada una, y muestra una barra por semana comparando lo que tendría que llevar esa semana contra lo que efectivamente cargó.
 
 Si ya tenías la app funcionando, hace falta correr `sql/identidad.sql` una vez en el SQL Editor de Supabase (además de los anteriores) y volver a subir los archivos de código actualizados a GitHub.
+
+## Principios y valores (actualización)
+
+Se sumó una 4ta sección a la identidad institucional, con el mismo patrón que Propósito/Misión/Visión: el dueño carga el texto en "Propósito, misión y visión" (campo "Principios y valores", pensado como una lista de comportamientos, uno por línea) y elige, encargado por encargado, quién lo puede ver — nuevo casillero "Valores" en la ficha de cada colaborador.
+
+Si ya tenías la app funcionando, hace falta correr `sql/valores.sql` una vez en el SQL Editor de Supabase (después de `sql/identidad.sql`) y volver a subir el código actualizado.
 
 ## Encargado marca su propio gasto como pagado
 
@@ -84,6 +90,7 @@ control-diario-app-supabase/
   sql/marcar_pagado_encargado.sql  función para que el encargado marque pagado su propio gasto aprobado
   sql/tareas_y_temas.sql           tareas de la semana por colaborador + manual compartido de temas de reunión
   sql/notificaciones.sql           mensajes cortos del dueño a un colaborador puntual (recordatorio al cargar un ticket)
+  sql/valores.sql                   4ta sección de identidad institucional: Principios y valores
 ```
 
 ## Puesta en marcha, paso a paso

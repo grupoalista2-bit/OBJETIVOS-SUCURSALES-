@@ -18,6 +18,7 @@ async function renderIdentidad(identidad) {
   document.getElementById('identidad-proposito').value = identidad.proposito;
   document.getElementById('identidad-mision').value = identidad.mision;
   document.getElementById('identidad-vision').value = identidad.vision;
+  document.getElementById('identidad-valores').value = identidad.valores;
 }
 
 async function renderResumenDueno(encargados, objetivos) {
@@ -79,6 +80,9 @@ async function renderEncargadosLista(encargados) {
               </label>
               <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;flex:1 1 auto;">
                 <input type="checkbox" id="editar-enc-vevision-${e.id}"${e.veVision ? ' checked' : ''}> Visión
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;flex:1 1 auto;">
+                <input type="checkbox" id="editar-enc-vevalores-${e.id}"${e.veValores ? ' checked' : ''}> Valores
               </label>
             </div>
             <div class="row-actions">
@@ -706,8 +710,9 @@ document.addEventListener('click', (ev) => {
     const veProposito = document.getElementById(`editar-enc-veproposito-${key}`).checked;
     const veMision = document.getElementById(`editar-enc-vemision-${key}`).checked;
     const veVision = document.getElementById(`editar-enc-vevision-${key}`).checked;
+    const veValores = document.getElementById(`editar-enc-vevalores-${key}`).checked;
     if (!nombre) { alert('El nombre no puede quedar vacío.'); return; }
-    Repo.editarEncargado(key, { nombre, sucursal, userId, veProposito, veMision, veVision }).then(() => {
+    Repo.editarEncargado(key, { nombre, sucursal, userId, veProposito, veMision, veVision, veValores }).then(() => {
       renderEncargadosLista();
       renderProgreso();
       renderCargaRapida();
@@ -841,7 +846,8 @@ document.addEventListener('click', (ev) => {
     const proposito = document.getElementById('identidad-proposito').value;
     const mision = document.getElementById('identidad-mision').value;
     const vision = document.getElementById('identidad-vision').value;
-    Repo.editarIdentidad({ proposito, mision, vision }).catch(manejarErrorRepo);
+    const valores = document.getElementById('identidad-valores').value;
+    Repo.editarIdentidad({ proposito, mision, vision, valores }).catch(manejarErrorRepo);
     return;
   }
 

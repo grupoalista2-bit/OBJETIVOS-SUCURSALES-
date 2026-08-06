@@ -21,6 +21,7 @@ function mapEncargadoDB(row) {
     veProposito: !!row.ve_proposito,
     veMision: !!row.ve_mision,
     veVision: !!row.ve_vision,
+    veValores: !!row.ve_valores,
   };
 }
 
@@ -29,6 +30,7 @@ function mapIdentidadDB(row) {
     proposito: (row && row.proposito) || '',
     mision: (row && row.mision) || '',
     vision: (row && row.vision) || '',
+    valores: (row && row.valores) || '',
   };
 }
 
@@ -216,12 +218,13 @@ const Repo = {
     return mapEncargadoDB(data);
   },
 
-  async editarEncargado(id, { nombre, sucursal, userId, veProposito, veMision, veVision }) {
+  async editarEncargado(id, { nombre, sucursal, userId, veProposito, veMision, veVision, veValores }) {
     const cambios = { nombre: nombre.trim(), sucursal: (sucursal || '').trim() };
     if (userId !== undefined) cambios.user_id = userId ? userId.trim() : null;
     if (veProposito !== undefined) cambios.ve_proposito = !!veProposito;
     if (veMision !== undefined) cambios.ve_mision = !!veMision;
     if (veVision !== undefined) cambios.ve_vision = !!veVision;
+    if (veValores !== undefined) cambios.ve_valores = !!veValores;
     const { data, error } = await supabaseClient.from('encargados').update(cambios).eq('id', id).select().single();
     if (error) throw error;
     return mapEncargadoDB(data);
@@ -301,11 +304,12 @@ const Repo = {
     return mapIdentidadDB(data);
   },
 
-  async editarIdentidad({ proposito, mision, vision }) {
+  async editarIdentidad({ proposito, mision, vision, valores }) {
     const cambios = { actualizado_en: new Date().toISOString() };
     if (proposito !== undefined) cambios.proposito = proposito.trim();
     if (mision !== undefined) cambios.mision = mision.trim();
     if (vision !== undefined) cambios.vision = vision.trim();
+    if (valores !== undefined) cambios.valores = valores.trim();
     const { data, error } = await supabaseClient.from('identidad_empresa').update(cambios).eq('id', true).select().single();
     if (error) throw error;
     return mapIdentidadDB(data);

@@ -33,13 +33,14 @@ function identidadBannerHTML(identidad, encargado) {
   if (encargado.veProposito && identidad.proposito) bloques.push({ titulo: 'Propósito', texto: identidad.proposito });
   if (encargado.veMision && identidad.mision) bloques.push({ titulo: 'Misión', texto: identidad.mision });
   if (encargado.veVision && identidad.vision) bloques.push({ titulo: 'Visión', texto: identidad.vision });
+  if (encargado.veValores && identidad.valores) bloques.push({ titulo: 'Principios y valores', texto: identidad.valores });
   if (bloques.length === 0) return '';
   return `
     <div class="card estado-azul" style="background:var(--azul-bg);">
       ${bloques.map(b => `
         <div style="margin-bottom:10px;">
           <div class="label" style="color:var(--azul);">${b.titulo}</div>
-          <div style="font-size:14px;line-height:1.5;">${b.texto}</div>
+          <div style="font-size:14px;line-height:1.5;white-space:pre-line;">${b.texto}</div>
         </div>
       `).join('')}
     </div>

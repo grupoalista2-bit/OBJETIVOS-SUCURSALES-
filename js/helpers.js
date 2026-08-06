@@ -123,7 +123,7 @@ function resumenObjetivoProgreso(obj, hoy) {
     const diasTexto = esPlural
       ? `${r.habilesRestantes} días hábiles restantes`
       : `1 día hábil restante`;
-    mensajeEstado = `Faltan <strong>${r.faltante} ${unidad}</strong> para la meta. Con ${diasTexto} en el mes, hace falta un promedio de <strong>${r.ritmoDiarioNecesario} ${unidad} por día hábil</strong>. ${r.enRitmo ? 'Va en ritmo respecto de lo esperado a hoy.' : 'Va atrasado respecto del ritmo esperado a hoy.'}`;
+    mensajeEstado = `Faltan <strong>${r.faltante} ${unidad}</strong> para la meta. Quedan ${diasTexto} en el mes: para llegar, hace falta cargar un promedio de <strong>${r.ritmoDiarioNecesario} por día hábil</strong>. ${r.enRitmo ? 'Va en ritmo respecto de lo esperado a hoy.' : 'Va atrasado respecto del ritmo esperado a hoy.'}`;
   }
 
   const colorCard = superado ? 'verde' : (r.enRitmo ? 'azul' : 'rojo');
