@@ -2,6 +2,50 @@
 // (pantalla global en app.js); acá solo se muestra lo que le corresponde
 // al usuario logueado, según lo que permite Row Level Security.
 
+// ---- Progreso semanal (compartido entre la tarjeta de solo lectura y el
+// dashboard editable del dueño en ui-dueno.js) ----
+
+function progresoSemanalHTML(obj) {
+  const semanas = progresoSemanalObjetivo(obj);
+  if (semanas.every(s => s.metaSemana === 0)) return '';
+  const filas = semanas.map(s => {
+    const pctBarra = Math.min(100, Math.max(0, s.pct));
+    let color = 'var(--azul)';
+    if (s.metaSemana > 0 && s.cumplida) color = 'var(--verde)';
+    else if (s.metaSemana > 0 && s.yaTermino) color = 'var(--rojo)';
+    return `
+      <div class="ranking-item">
+        <div class="ranking-nombre">Sem. ${s.numero} (${formatearFechaCorta(s.inicio)}–${formatearFechaCorta(s.fin)})</div>
+        <div class="ranking-barra-track"><div class="ranking-barra-fill" style="width:${pctBarra}%;background:${color}"></div></div>
+        <div class="ranking-pct">${s.logrado}/${s.metaSemana}</div>
+      </div>
+    `;
+  }).join('');
+  return `<div class="section-title" style="font-size:12px;margin:16px 0 8px;">Progreso semanal</div>${filas}`;
+}
+
+// ---- Identidad institucional (Propósito / Misión / Visión) ----
+// Solo muestra los bloques que el dueño habilitó para ESE encargado
+// puntual, y solo si además tienen texto cargado.
+
+function identidadBannerHTML(identidad, encargado) {
+  const bloques = [];
+  if (encargado.veProposito && identidad.proposito) bloques.push({ titulo: 'Propósito', texto: identidad.proposito });
+  if (encargado.veMision && identidad.mision) bloques.push({ titulo: 'Misión', texto: identidad.mision });
+  if (encargado.veVision && identidad.vision) bloques.push({ titulo: 'Visión', texto: identidad.vision });
+  if (bloques.length === 0) return '';
+  return `
+    <div class="card estado-azul" style="background:var(--azul-bg);">
+      ${bloques.map(b => `
+        <div style="margin-bottom:10px;">
+          <div class="label" style="color:var(--azul);">${b.titulo}</div>
+          <div style="font-size:14px;line-height:1.5;">${b.texto}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
 function tarjetaProgresoSoloLecturaHTML(obj) {
   const { avance, superado, r, unidad, mensajeEstado, colorCard } = resumenObjetivoProgreso(obj);
 
@@ -39,6 +83,7 @@ function tarjetaProgresoSoloLecturaHTML(obj) {
       </div>
       <div class="section-title" style="font-size:12px;margin:16px 0 8px;">Historial de cargas</div>
       ${historialHTML}
+      ${progresoSemanalHTML(obj)}
     </div>
   `;
 }
@@ -201,7 +246,9 @@ async function renderTarjetasObjetivos(contenedorId, encargado, mensajePausado) 
 
 async function renderEncargado() {
   const cont = document.getElementById('encargado-lista');
+  const bannerCont = document.getElementById('identidad-banner-propio');
   cont.innerHTML = '<div class="empty-msg">Cargando...</div>';
+  if (bannerCont) bannerCont.innerHTML = '';
 
   let encargado;
   try {
@@ -214,6 +261,15 @@ async function renderEncargado() {
   if (!encargado) {
     cont.innerHTML = '<div class="empty-msg">Tu usuario todavía no está vinculado a ningún encargado. Pedile al dueño que complete el campo "ID de usuario" en tu perfil, dentro de su panel.</div>';
     return;
+  }
+
+  // Si esto falla, no rompe el resto de la pantalla: el progreso es lo
+  // importante y tiene que verse igual aunque el banner no cargue.
+  if (bannerCont) {
+    try {
+      const identidad = await Repo.getIdentidad();
+      bannerCont.innerHTML = identidadBannerHTML(identidad, encargado);
+    } catch (e) { /* silencioso a propósito */ }
   }
 
   await renderTarjetasObjetivos(
@@ -257,6 +313,14 @@ async function renderEncargadoComoDueno() {
   const sel = document.getElementById('select-ver-encargado');
   const encargado = encargados.find(e => e.id === sel.value) || encargados[0];
   sel.value = encargado.id;
+
+  const bannerCont = document.getElementById('identidad-banner-dueno');
+  if (bannerCont) {
+    try {
+      const identidad = await Repo.getIdentidad();
+      bannerCont.innerHTML = identidadBannerHTML(identidad, encargado);
+    } catch (e) { bannerCont.innerHTML = ''; }
+  }
 
   await renderTarjetasObjetivos(
     'encargado-lista-dueno',

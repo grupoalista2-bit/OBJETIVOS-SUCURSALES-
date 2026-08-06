@@ -11,9 +11,18 @@ function nombreEncargado(encargados, encargadoId) {
   return enc ? `${enc.nombre} — ${enc.sucursal}` : '(encargado eliminado)';
 }
 
-async function renderResumenDueno() {
-  const encargados = await Repo.getEncargados();
-  const objetivos = await Repo.getObjetivosProgreso();
+// ---- Identidad institucional (Propósito / Misión / Visión) ----
+
+async function renderIdentidad(identidad) {
+  identidad = identidad || await Repo.getIdentidad();
+  document.getElementById('identidad-proposito').value = identidad.proposito;
+  document.getElementById('identidad-mision').value = identidad.mision;
+  document.getElementById('identidad-vision').value = identidad.vision;
+}
+
+async function renderResumenDueno(encargados, objetivos) {
+  encargados = encargados || await Repo.getEncargados();
+  objetivos = objetivos || await Repo.getObjetivosProgreso();
 
   let sumAvance = 0, enRiesgo = 0;
   objetivos.forEach(obj => {
@@ -32,8 +41,8 @@ async function renderResumenDueno() {
   `;
 }
 
-async function renderEncargadosLista() {
-  const encargados = await Repo.getEncargados();
+async function renderEncargadosLista(encargados) {
+  encargados = encargados || await Repo.getEncargados();
   const cont = document.getElementById('encargados-lista');
 
   cont.innerHTML = encargados.length === 0
@@ -60,6 +69,18 @@ async function renderEncargadosLista() {
             <label class="label" for="editar-enc-userid-${e.id}">ID de usuario (Supabase Auth)</label>
             <input type="text" id="editar-enc-userid-${e.id}" value="${e.userId}" placeholder="Pegá acá el UUID del usuario que creaste para esta persona">
             <p class="hint" style="margin-top:-4px;">Se copia desde Authentication &gt; Users en el dashboard de Supabase. Dejalo vacío si todavía no le creaste una cuenta.</p>
+            <label class="label">Qué puede ver de la identidad institucional</label>
+            <div class="row-actions" style="margin-top:0;margin-bottom:12px;">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;flex:1 1 auto;">
+                <input type="checkbox" id="editar-enc-veproposito-${e.id}"${e.veProposito ? ' checked' : ''}> Propósito
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;flex:1 1 auto;">
+                <input type="checkbox" id="editar-enc-vemision-${e.id}"${e.veMision ? ' checked' : ''}> Misión
+              </label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;flex:1 1 auto;">
+                <input type="checkbox" id="editar-enc-vevision-${e.id}"${e.veVision ? ' checked' : ''}> Visión
+              </label>
+            </div>
             <div class="row-actions">
               <button class="primary" data-action="guardar-edicion-encargado" data-key="${e.id}" style="width:100%;">Guardar cambios</button>
             </div>
@@ -132,9 +153,9 @@ document.getElementById('nuevo-mes').addEventListener('change', (ev) => {
 
 // ---- Carga rápida de tickets de hoy ----
 
-async function renderCargaRapida() {
-  const objetivos = await Repo.getObjetivosProgreso();
-  const encargados = await Repo.getEncargados();
+async function renderCargaRapida(objetivos, encargados) {
+  objetivos = objetivos || await Repo.getObjetivosProgreso();
+  encargados = encargados || await Repo.getEncargados();
   const cont = document.getElementById('carga-rapida-lista');
 
   const activos = objetivos.filter(obj => {
@@ -170,9 +191,9 @@ async function renderCargaRapida() {
 
 // ---- Dashboard de progreso ----
 
-async function renderProgreso() {
-  const objetivos = await Repo.getObjetivosProgreso();
-  const encargados = await Repo.getEncargados();
+async function renderProgreso(objetivos, encargados) {
+  objetivos = objetivos || await Repo.getObjetivosProgreso();
+  encargados = encargados || await Repo.getEncargados();
   const cont = document.getElementById('progreso-lista');
 
   if (objetivos.length === 0) {
@@ -225,8 +246,10 @@ async function renderProgreso() {
       <div class="row-actions">
         <button class="secondary" data-action="toggle-carga" data-key="${obj.id}">Cargar / corregir un día</button>
         <button class="secondary" data-action="toggle-historial" data-key="${obj.id}">Historial (${obj.historial.length})</button>
+        <button class="secondary" data-action="toggle-semanal" data-key="${obj.id}">Progreso semanal</button>
         <button class="secondary" data-action="toggle-editar-objetivo" data-key="${obj.id}">Editar objetivo</button>
       </div>
+      <div id="semanal-${obj.id}" style="display:none;margin-top:10px;">${progresoSemanalHTML(obj)}</div>
       <div id="carga-${obj.id}" style="display:none;margin-top:10px;">
         <label class="label" for="fecha-${obj.id}">Fecha</label>
         <input type="date" id="fecha-${obj.id}" value="${hoyISO()}">
@@ -268,9 +291,9 @@ async function renderProgreso() {
 
 const COLORES_SERIE = ['#2563eb', '#16a34a', '#dc2626', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#78350f'];
 
-async function renderComparativo() {
-  const todos = await Repo.getObjetivosProgreso();
-  const encargados = await Repo.getEncargados();
+async function renderComparativo(todos, encargados) {
+  todos = todos || await Repo.getObjetivosProgreso();
+  encargados = encargados || await Repo.getEncargados();
   const mesHoy = mesActualISO();
   const activos = todos.filter(o => {
     if (o.mes !== mesHoy) return false;
@@ -339,9 +362,9 @@ async function renderComparativo() {
 
 // ---- Categorías de gasto ----
 
-async function renderCategoriasGasto() {
+async function renderCategoriasGasto(categorias) {
   const cont = document.getElementById('categorias-gasto-lista');
-  const categorias = await Repo.getCategoriasGasto();
+  categorias = categorias || await Repo.getCategoriasGasto();
   cont.innerHTML = categorias.length === 0
     ? '<div class="empty-msg">Todavía no cargaste ninguna categoría de gasto.</div>'
     : categorias.map(c => `
@@ -359,9 +382,9 @@ async function renderCategoriasGasto() {
 
 // ---- Proveedores / entidades ----
 
-async function renderProveedores() {
+async function renderProveedores(proveedores) {
   const cont = document.getElementById('proveedores-lista');
-  const proveedores = await Repo.getProveedores();
+  proveedores = proveedores || await Repo.getProveedores();
   cont.innerHTML = proveedores.length === 0
     ? '<div class="empty-msg">Todavía no cargaste ningún proveedor.</div>'
     : proveedores.map(p => `
@@ -411,9 +434,11 @@ document.addEventListener('change', (ev) => {
 
 // ---- Cola de gastos pendientes de aprobación ----
 
-async function renderGastosPendientes() {
+async function renderGastosPendientes(gastos, categorias, proveedores) {
   const cont = document.getElementById('gastos-pendientes-lista');
-  const [gastos, categorias, proveedores] = await Promise.all([Repo.getGastos(), Repo.getCategoriasGasto(), Repo.getProveedores()]);
+  if (!gastos || !categorias || !proveedores) {
+    [gastos, categorias, proveedores] = await Promise.all([Repo.getGastos(), Repo.getCategoriasGasto(), Repo.getProveedores()]);
+  }
   const pendientes = gastos.filter(g => g.estado === 'pendiente');
 
   if (pendientes.length === 0) {
@@ -454,9 +479,9 @@ async function renderGastosPendientes() {
 
 // ---- Cola de gastos aprobados pendientes de pago ----
 
-async function renderPagosPendientes() {
+async function renderPagosPendientes(gastos) {
   const cont = document.getElementById('pagos-pendientes-lista');
-  const gastos = await Repo.getGastos();
+  gastos = gastos || await Repo.getGastos();
   const pendientesPago = gastos.filter(g => g.estado === 'aprobado' && g.estadoPago === 'pendiente');
 
   if (pendientesPago.length === 0) {
@@ -487,10 +512,10 @@ async function renderPagosPendientes() {
 
 // ---- Informe de gastos por categoría y por sucursal ----
 
-async function renderInformeGastos() {
+async function renderInformeGastos(gastos) {
   const desde = document.getElementById('informe-desde').value;
   const hasta = document.getElementById('informe-hasta').value;
-  const gastos = await Repo.getGastos();
+  gastos = gastos || await Repo.getGastos();
 
   const porCategoria = agruparGastosAprobados(gastos, desde, hasta, 'categoriaNombre');
   const porSucursalAnidado = agruparGastosAprobadosAnidado(gastos, desde, hasta, 'sucursal', 'categoriaNombre');
@@ -546,27 +571,50 @@ async function renderInformeGastos() {
 // Contenido de la pestaña "Gastos" cuando el usuario logueado es el
 // dueño (la otra mitad de esa pestaña, para un encargado, vive en
 // ui-encargado.js como renderGastosEncargado()).
+// Pide encargados, categorías, proveedores y gastos UNA sola vez (en
+// paralelo) y se los pasa a cada sub-render, en vez de que cada uno
+// vuelva a pedirlos por su cuenta. Antes esta pestaña disparaba más de
+// una decena de consultas encadenadas a Supabase; así queda en un puñado
+// en paralelo, que es lo que más pesa en el tiempo de carga.
 async function renderGastosDueno() {
   try {
-    await renderCategoriasGasto();
-    await renderProveedores();
-    await renderGastosPendientes();
-    await renderPagosPendientes();
-    await renderInformeGastos();
+    const [encargados, categorias, proveedores] = await Promise.all([
+      Repo.getEncargados(),
+      Repo.getCategoriasGasto(),
+      Repo.getProveedores(),
+    ]);
+    const encargadosPorId = {}; encargados.forEach(e => { encargadosPorId[e.id] = e; });
+    const categoriasPorId = {}; categorias.forEach(c => { categoriasPorId[c.id] = c; });
+    const proveedoresPorId = {}; proveedores.forEach(p => { proveedoresPorId[p.id] = p; });
+    const gastos = await Repo.getGastos({ encargadosPorId, categoriasPorId, proveedoresPorId });
+
+    await renderCategoriasGasto(categorias);
+    await renderProveedores(proveedores);
+    await renderGastosPendientes(gastos, categorias, proveedores);
+    await renderPagosPendientes(gastos);
+    await renderInformeGastos(gastos);
   } catch (e) {
     console.error(e);
     alert('No se pudieron cargar los datos de gastos. Revisá tu conexión e intentá de nuevo.');
   }
 }
 
+// Mismo criterio que renderGastosDueno: encargados y objetivos se piden
+// una vez en paralelo y se reparten entre las cinco secciones del panel.
 async function renderDueno() {
   try {
-    await renderResumenDueno();
-    await renderEncargadosLista();
+    const [encargados, objetivos, identidad] = await Promise.all([
+      Repo.getEncargados(),
+      Repo.getObjetivosProgreso(),
+      Repo.getIdentidad(),
+    ]);
+    await renderIdentidad(identidad);
+    await renderResumenDueno(encargados, objetivos);
+    await renderEncargadosLista(encargados);
     renderCalendarioNuevoObjetivo();
-    await renderCargaRapida();
-    await renderProgreso();
-    await renderComparativo();
+    await renderCargaRapida(objetivos, encargados);
+    await renderProgreso(objetivos, encargados);
+    await renderComparativo(objetivos, encargados);
   } catch (e) {
     console.error(e);
     alert('No se pudieron cargar los datos del panel. Revisá tu conexión e intentá de nuevo.');
@@ -615,8 +663,11 @@ document.addEventListener('click', (ev) => {
     const nombre = document.getElementById(`editar-enc-nombre-${key}`).value.trim();
     const sucursal = document.getElementById(`editar-enc-sucursal-${key}`).value.trim();
     const userId = document.getElementById(`editar-enc-userid-${key}`).value.trim();
+    const veProposito = document.getElementById(`editar-enc-veproposito-${key}`).checked;
+    const veMision = document.getElementById(`editar-enc-vemision-${key}`).checked;
+    const veVision = document.getElementById(`editar-enc-vevision-${key}`).checked;
     if (!nombre) { alert('El nombre no puede quedar vacío.'); return; }
-    Repo.editarEncargado(key, { nombre, sucursal, userId }).then(() => {
+    Repo.editarEncargado(key, { nombre, sucursal, userId, veProposito, veMision, veVision }).then(() => {
       renderEncargadosLista();
       renderProgreso();
       renderCargaRapida();
@@ -724,6 +775,23 @@ document.addEventListener('click', (ev) => {
   if (toggleHistorialBtn) {
     const el = document.getElementById('historial-' + toggleHistorialBtn.dataset.key);
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+
+  const toggleSemanalBtn = ev.target.closest('[data-action="toggle-semanal"]');
+  if (toggleSemanalBtn) {
+    const el = document.getElementById('semanal-' + toggleSemanalBtn.dataset.key);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+
+  // --- Identidad institucional ---
+  const guardarIdentidadBtn = ev.target.closest('[data-action="guardar-identidad"]');
+  if (guardarIdentidadBtn) {
+    const proposito = document.getElementById('identidad-proposito').value;
+    const mision = document.getElementById('identidad-mision').value;
+    const vision = document.getElementById('identidad-vision').value;
+    Repo.editarIdentidad({ proposito, mision, vision }).catch(manejarErrorRepo);
     return;
   }
 

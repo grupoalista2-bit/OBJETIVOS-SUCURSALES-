@@ -14,3 +14,16 @@ const SUPABASE_KEY = 'sb_publishable_oFSJs8HL1oG7phkQRi7HnQ_yObN6MoS';
 
 const { createClient } = window.supabase;
 const supabaseClient = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Cuando alguien entra a la app desde el link del mail de "recuperar
+// contraseña", supabase-js detecta el token en la URL y dispara este
+// evento apenas carga la página — antes incluso de que la persona toque
+// nada. Por eso se registra acá, en el primer archivo que corre, y no en
+// app.js: para no perderlo por una carrera de tiempos. mostrarRecuperacionClave()
+// se define más abajo (en app.js), pero como este callback recién se
+// ejecuta cuando el evento realmente ocurre, para ese momento ya existe.
+supabaseClient.auth.onAuthStateChange((event) => {
+  if (event === 'PASSWORD_RECOVERY' && typeof mostrarRecuperacionClave === 'function') {
+    mostrarRecuperacionClave();
+  }
+});

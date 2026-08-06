@@ -18,6 +18,17 @@ function mapEncargadoDB(row) {
     sucursal: row.sucursal,
     activo: row.activo,
     userId: row.user_id || '',
+    veProposito: !!row.ve_proposito,
+    veMision: !!row.ve_mision,
+    veVision: !!row.ve_vision,
+  };
+}
+
+function mapIdentidadDB(row) {
+  return {
+    proposito: (row && row.proposito) || '',
+    mision: (row && row.mision) || '',
+    vision: (row && row.vision) || '',
   };
 }
 
@@ -83,6 +94,16 @@ const Auth = {
     await supabaseClient.auth.signOut();
   },
 
+  // Cambia la contraseña de la cuenta CON LA QUE YA SE ESTÁ LOGUEADO en
+  // este dispositivo (no sirve para resetear la contraseña de otro
+  // usuario sin conocerla primero — para eso hay que ir al dashboard de
+  // Supabase, Authentication > Users, como se explica en el README).
+  async cambiarPassword(nuevaPassword) {
+    const { error } = await supabaseClient.auth.updateUser({ password: nuevaPassword });
+    if (error) return { ok: false, mensaje: error.message || 'No se pudo cambiar la contraseña.' };
+    return { ok: true };
+  },
+
   async sesionActual() {
     const { data } = await supabaseClient.auth.getSession();
     return data.session || null;
@@ -130,9 +151,12 @@ const Repo = {
     return mapEncargadoDB(data);
   },
 
-  async editarEncargado(id, { nombre, sucursal, userId }) {
+  async editarEncargado(id, { nombre, sucursal, userId, veProposito, veMision, veVision }) {
     const cambios = { nombre: nombre.trim(), sucursal: (sucursal || '').trim() };
     if (userId !== undefined) cambios.user_id = userId ? userId.trim() : null;
+    if (veProposito !== undefined) cambios.ve_proposito = !!veProposito;
+    if (veMision !== undefined) cambios.ve_mision = !!veMision;
+    if (veVision !== undefined) cambios.ve_vision = !!veVision;
     const { data, error } = await supabaseClient.from('encargados').update(cambios).eq('id', id).select().single();
     if (error) throw error;
     return mapEncargadoDB(data);
@@ -203,6 +227,25 @@ const Repo = {
     return mapObjetivoDB(obj, cargas || []);
   },
 
+  // ---- Identidad institucional (Propósito / Misión / Visión) ----
+  // La tabla siempre tiene una única fila (id = true).
+
+  async getIdentidad() {
+    const { data, error } = await supabaseClient.from('identidad_empresa').select('*').eq('id', true).maybeSingle();
+    if (error) throw error;
+    return mapIdentidadDB(data);
+  },
+
+  async editarIdentidad({ proposito, mision, vision }) {
+    const cambios = { actualizado_en: new Date().toISOString() };
+    if (proposito !== undefined) cambios.proposito = proposito.trim();
+    if (mision !== undefined) cambios.mision = mision.trim();
+    if (vision !== undefined) cambios.vision = vision.trim();
+    const { data, error } = await supabaseClient.from('identidad_empresa').update(cambios).eq('id', true).select().single();
+    if (error) throw error;
+    return mapIdentidadDB(data);
+  },
+
   // ---- Categorías de gasto ----
 
   async getCategoriasGasto() {
@@ -271,12 +314,16 @@ const Repo = {
 
   // Todos los gastos (el dueño ve todos; si lo llamara un encargado, por
   // RLS solo le vendrían los suyos igual, aunque esta app no lo usa así).
-  async getGastos() {
+  // Si ya se resolvieron encargados/categorías/proveedores más arriba (por
+  // ejemplo en renderGastosDueno), se pueden pasar en "mapasPrecalculadas"
+  // para no volver a pedirlos: eso evita 3 consultas de más cada vez que
+  // se piden los gastos.
+  async getGastos(mapasPrecalculadas) {
     const { data, error } = await supabaseClient.from('gastos').select('*')
       .order('fecha', { ascending: false })
       .order('creado_en', { ascending: false });
     if (error) throw error;
-    const { encargadosPorId, categoriasPorId, proveedoresPorId } = await this._mapasGastos();
+    const { encargadosPorId, categoriasPorId, proveedoresPorId } = mapasPrecalculadas || await this._mapasGastos();
     return data.map(g => mapGastoDB(g, encargadosPorId, categoriasPorId, proveedoresPorId));
   },
 

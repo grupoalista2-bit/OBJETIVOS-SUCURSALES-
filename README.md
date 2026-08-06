@@ -23,6 +23,13 @@ Se agregó, dentro de esta misma app (mismo login, mismo proyecto de Supabase), 
 
 Si ya tenías la app funcionando y agregás este módulo después, hace falta correr, en este orden, `sql/gastos.sql` y después `sql/gastos_v2.sql` una vez cada uno en el SQL Editor de Supabase (además del `sql/schema.sql` que ya corriste), y volver a subir los archivos actualizados a GitHub — el detalle está en "Actualizar la app ya desplegada", más abajo.
 
+## Propósito, misión y visión + progreso semanal (actualización)
+
+- **Identidad institucional.** En la pestaña Dueño hay una sección "Propósito, misión y visión" donde el dueño carga el texto de cada una. Por sí solo no le aparece a nadie: en la ficha de cada encargado (botón "Editar" dentro de "Encargados") hay 3 casilleros — Propósito, Misión, Visión — para elegir cuál de los tres puede ver esa persona en particular. Al que tiene alguno tildado, ese texto le aparece arriba de todo en su pestaña Encargado, cada vez que entra a la app.
+- **Progreso semanal.** Cada tarjeta de objetivo (tanto en el dashboard del dueño como en la vista de solo lectura del encargado) tiene un botón "Progreso semanal" que reparte la meta del mes entre las semanas (lunes a domingo) en proporción a los días hábiles de cada una, y muestra una barra por semana comparando lo que tendría que llevar esa semana contra lo que efectivamente cargó.
+
+Si ya tenías la app funcionando, hace falta correr `sql/identidad.sql` una vez en el SQL Editor de Supabase (además de los anteriores) y volver a subir los archivos de código actualizados a GitHub.
+
 ## Estructura del proyecto
 
 ```
@@ -38,6 +45,7 @@ control-diario-app-supabase/
   sql/schema.sql                script SQL para crear las tablas y las reglas de seguridad en Supabase
   sql/gastos.sql                 script SQL del módulo de gastos (categorías, gastos, RLS)
   sql/gastos_v2.sql               ampliación: proveedores, forma de pago, cheque, estado de pago
+  sql/identidad.sql                identidad institucional (propósito/misión/visión) y flags de visibilidad
 ```
 
 ## Puesta en marcha, paso a paso
@@ -124,6 +132,14 @@ Si preferís no usar la terminal, GitHub también permite arrastrar los archivos
 4. "Deploy". En un minuto te da una URL pública que ya podés compartir con cada encargado, junto con su email y contraseña.
 
 Cada `git push` posterior actualiza la página sola.
+
+## "Olvidé mi contraseña" — recuperarla desde el mail
+
+1. En el dashboard de Supabase: **Authentication → Users**, hacé clic en la persona, y en **"Reset password"** tocá **"Send password recovery"**. Le llega un mail a la casilla real que tenga cargada esa cuenta.
+2. Al tocar el link del mail, la app lo detecta sola y muestra una pantalla para poner la contraseña nueva (dos veces, para confirmar). Al guardar, cierra esa sesión temporal y pide loguearse de nuevo ya con la contraseña nueva.
+3. **Importante:** para que el link del mail redirija a tu app y no a otro lado (por ejemplo `localhost`), el proyecto de Supabase tiene que tener configurada la URL correcta. Andá a **Authentication → URL Configuration** y fijate que **Site URL** sea la URL pública de tu app (por ejemplo `https://objetivos-sucursales.vercel.app`), sin la barra `/` al final. Si la cambiás, los links que ya te llegaron por mail antes del cambio quedan viejos — pedí que te reenvíen uno nuevo después de corregir la URL.
+
+Además, cualquiera que ya esté logueado (dueño o encargado) puede cambiar su propia contraseña sin pasar por el mail: botón **"Contraseña"** junto a "Cerrar sesión", arriba de todo.
 
 ## Sobre la seguridad
 

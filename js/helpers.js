@@ -172,3 +172,72 @@ function agruparGastosAprobadosAnidado(gastos, desde, hasta, campoExterno, campo
     return { clave: ext.clave, total: ext.total, subgrupos };
   });
 }
+
+// ---- Progreso semanal de un objetivo ----
+
+// Parte el mes en semanas de lunes a domingo. La primera y la última
+// semana quedan "recortadas" si el mes no arranca un lunes o no termina
+// un domingo (por ejemplo, si el 1 del mes es un jueves, la semana 1 va
+// del 1 al domingo siguiente nada más).
+function semanasDelMes(mesISO) {
+  const [anio, mes] = mesISO.split('-').map(Number);
+  const ultimoDia = new Date(anio, mes, 0).getDate();
+  const semanas = [];
+  let dia = 1;
+  while (dia <= ultimoDia) {
+    const dow = (new Date(anio, mes - 1, dia).getDay() + 6) % 7; // 0 = lunes
+    const finSemana = Math.min(ultimoDia, dia + (6 - dow));
+    semanas.push({
+      numero: semanas.length + 1,
+      inicio: `${mesISO}-${String(dia).padStart(2, '0')}`,
+      fin: `${mesISO}-${String(finSemana).padStart(2, '0')}`,
+    });
+    dia = finSemana + 1;
+  }
+  return semanas;
+}
+
+// Cuenta los días hábiles (no marcados como no laborales) entre dos
+// fechas 'YYYY-MM-DD', ambos límites inclusive.
+function contarDiasHabilesEnRango(desde, hasta, diasNoLaborales) {
+  const [anioD, mesD, diaD] = desde.split('-').map(Number);
+  const [anioH, mesH, diaH] = hasta.split('-').map(Number);
+  const libres = new Set(diasNoLaborales || []);
+  let total = 0;
+  const cursor = new Date(anioD, mesD - 1, diaD);
+  const fin = new Date(anioH, mesH - 1, diaH);
+  while (cursor <= fin) {
+    if (!libres.has(hoyISO(cursor))) total++;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return total;
+}
+
+// Reparte la meta mensual entre las semanas del mes, en proporción a los
+// días hábiles que tiene cada una, y compara contra lo efectivamente
+// cargado esa semana (según obj.historial). Sirve para mostrar el avance
+// como una lista semana a semana ("¿cumplí lo que tenía que cumplir esta
+// semana?"), en vez de solo el acumulado del mes.
+function progresoSemanalObjetivo(obj, hoy) {
+  const semanas = semanasDelMes(obj.mes);
+  const diasHabilesTotales = diasHabilesDelMes(obj.mes, obj.diasNoLaborales);
+  const ref = hoy || new Date();
+  const hoyISOStr = hoyISO(ref);
+
+  return semanas.map(sem => {
+    const diasHabilesSemana = contarDiasHabilesEnRango(sem.inicio, sem.fin, obj.diasNoLaborales);
+    const metaSemana = diasHabilesTotales > 0
+      ? Math.round(obj.meta * (diasHabilesSemana / diasHabilesTotales))
+      : 0;
+    const logrado = (obj.historial || [])
+      .filter(h => h.fecha >= sem.inicio && h.fecha <= sem.fin)
+      .reduce((s, h) => s + h.valor, 0);
+    const pct = metaSemana > 0 ? Math.round((logrado / metaSemana) * 100) : (logrado > 0 ? 100 : 0);
+    const yaTermino = sem.fin < hoyISOStr;
+    const cumplida = metaSemana > 0 && logrado >= metaSemana;
+    return {
+      numero: sem.numero, inicio: sem.inicio, fin: sem.fin,
+      diasHabilesSemana, metaSemana, logrado, pct, yaTermino, cumplida,
+    };
+  });
+}

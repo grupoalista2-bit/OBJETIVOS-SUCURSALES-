@@ -42,6 +42,10 @@ html, body {
   padding: 8px 12px;
   margin-bottom: 10px;
 }
+.login-error.exito {
+  color: var(--verde);
+  background: var(--verde-bg);
+}
 
 /* ---------- Top bar ---------- */
 .topbar {
