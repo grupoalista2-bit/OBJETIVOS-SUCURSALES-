@@ -86,6 +86,8 @@ function mostrarLogin() {
   const errEl = document.getElementById('login-error');
   errEl.style.display = 'none';
   errEl.classList.remove('exito');
+  document.getElementById('card-olvide-clave').style.display = 'none';
+  document.getElementById('card-login').style.display = 'block';
 }
 
 async function switchView(view) {
@@ -140,6 +142,57 @@ document.getElementById('btn-login').addEventListener('click', intentarLogin);
   document.getElementById(id).addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter') intentarLogin();
   });
+});
+
+// ---- "Olvidé mi contraseña" (desde la pantalla de login, sin sesión) ----
+
+document.getElementById('btn-olvide-clave').addEventListener('click', () => {
+  document.getElementById('olvide-email').value = document.getElementById('login-email').value.trim();
+  document.getElementById('olvide-error').style.display = 'none';
+  document.getElementById('olvide-ok').style.display = 'none';
+  document.getElementById('card-login').style.display = 'none';
+  document.getElementById('card-olvide-clave').style.display = 'block';
+});
+
+document.addEventListener('click', (ev) => {
+  const cancelarOlvideBtn = ev.target.closest('[data-action="cancelar-olvide"]');
+  if (cancelarOlvideBtn) {
+    document.getElementById('card-olvide-clave').style.display = 'none';
+    document.getElementById('card-login').style.display = 'block';
+    return;
+  }
+
+  const enviarRecuperacionBtn = ev.target.closest('[data-action="enviar-recuperacion"]');
+  if (enviarRecuperacionBtn) {
+    const email = document.getElementById('olvide-email').value.trim();
+    const errEl = document.getElementById('olvide-error');
+    const okEl = document.getElementById('olvide-ok');
+    errEl.style.display = 'none';
+    okEl.style.display = 'none';
+
+    if (!email) {
+      errEl.textContent = 'Ingresá tu email.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    enviarRecuperacionBtn.disabled = true;
+    Auth.recuperarPassword(email).then(res => {
+      enviarRecuperacionBtn.disabled = false;
+      if (!res.ok) {
+        errEl.textContent = res.mensaje;
+        errEl.style.display = 'block';
+        return;
+      }
+      okEl.textContent = 'Si ese email tiene una cuenta, le va a llegar un link para poner una contraseña nueva. Revisá la bandeja de entrada (y spam).';
+      okEl.style.display = 'block';
+    }).catch(() => {
+      enviarRecuperacionBtn.disabled = false;
+      errEl.textContent = 'No se pudo enviar. Revisá tu conexión e intentá de nuevo.';
+      errEl.style.display = 'block';
+    });
+    return;
+  }
 });
 
 document.getElementById('btn-logout').addEventListener('click', async () => {

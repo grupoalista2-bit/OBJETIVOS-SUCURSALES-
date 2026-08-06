@@ -151,6 +151,43 @@ document.getElementById('nuevo-mes').addEventListener('change', (ev) => {
   renderCalendarioNuevoObjetivo();
 });
 
+// ---- Paneles colapsables (arrancan cerrados para no saturar el
+// dashboard con formularios que se usan poco) ----
+
+document.getElementById('btn-toggle-categorias-gasto').addEventListener('click', () => {
+  const panel = document.getElementById('panel-categorias-gasto');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('btn-toggle-proveedores').addEventListener('click', () => {
+  const panel = document.getElementById('panel-proveedores');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('btn-toggle-encargados-lista').addEventListener('click', () => {
+  const panel = document.getElementById('panel-encargados-lista');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('btn-toggle-nuevo-encargado').addEventListener('click', () => {
+  const panel = document.getElementById('panel-nuevo-encargado');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('btn-toggle-nuevo-objetivo').addEventListener('click', () => {
+  const panel = document.getElementById('panel-nuevo-objetivo');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('btn-toggle-carga-rapida').addEventListener('click', () => {
+  const panel = document.getElementById('panel-carga-rapida');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+});
+
+document.getElementById('carga-rapida-fecha').addEventListener('change', () => {
+  renderCargaRapida();
+});
+
 // ---- Carga rápida de tickets de hoy ----
 
 async function renderCargaRapida(objetivos, encargados) {
@@ -158,32 +195,42 @@ async function renderCargaRapida(objetivos, encargados) {
   encargados = encargados || await Repo.getEncargados();
   const cont = document.getElementById('carga-rapida-lista');
 
+  const fechaInput = document.getElementById('carga-rapida-fecha');
+  if (!fechaInput.value) fechaInput.value = hoyISO();
+  const fecha = fechaInput.value;
+  const esHoy = fecha === hoyISO();
+
   const activos = objetivos.filter(obj => {
     const enc = encargados.find(e => e.id === obj.encargadoId);
     return enc && enc.activo;
   });
 
   if (activos.length === 0) {
-    cont.innerHTML = '<div class="empty-msg">No hay objetivos de encargados activos para cargar hoy.</div>';
+    cont.innerHTML = '<div class="empty-msg">No hay objetivos de encargados activos para cargar.</div>';
     return;
   }
 
-  const hoy = hoyISO();
   cont.innerHTML = activos.map(obj => {
-    const entradaHoy = obj.historial.find(h => h.fecha === hoy);
+    const entrada = obj.historial.find(h => h.fecha === fecha);
+    const enc = encargados.find(e => e.id === obj.encargadoId);
     return `
       <div class="card" style="padding:12px 16px;">
         <div style="font-weight:600;">${obj.titulo}</div>
         <div style="font-size:12px;color:var(--texto-sec);margin-bottom:8px;">${nombreEncargado(encargados, obj.encargadoId)}</div>
         <div class="field-row">
           <div>
-            <input type="number" id="rapida-${obj.id}" placeholder="Tickets de hoy" value="${entradaHoy ? entradaHoy.valor : ''}">
+            <input type="number" id="rapida-${obj.id}" placeholder="${esHoy ? 'Tickets de hoy' : 'Tickets de ese día'}" value="${entrada ? entrada.valor : ''}">
           </div>
           <div style="flex:0 0 auto;">
             <button class="primary" data-action="guardar-rapida" data-key="${obj.id}">Guardar</button>
           </div>
         </div>
-        ${entradaHoy ? `<div class="hint" style="margin:0;">Ya cargado hoy: ${entradaHoy.valor} ${obj.unidad}. Guardar de nuevo lo reemplaza.</div>` : ''}
+        ${entrada ? `<div class="hint" style="margin:0;">Ya cargado ese día: ${entrada.valor} ${obj.unidad}. Guardar de nuevo lo reemplaza.</div>` : ''}
+        ${enc ? `
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;margin-top:8px;">
+          <input type="checkbox" id="rapida-avisar-${obj.id}" data-encargado-id="${enc.id}"> Avisarle a ${enc.nombre} en la app que revise su progreso
+        </label>
+        ` : ''}
       </div>
     `;
   }).join('');
@@ -257,6 +304,9 @@ async function renderProgreso(objetivos, encargados) {
         <input type="number" id="valor-${obj.id}">
         <label class="label" for="nota-${obj.id}">Nota (opcional)</label>
         <textarea id="nota-${obj.id}" placeholder="Ej: se corrige el número cargado el viernes..."></textarea>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;margin:8px 0;">
+          <input type="checkbox" id="avisar-${obj.id}" data-encargado-id="${obj.encargadoId}"> Avisarle a ${nombreEncargado(encargados, obj.encargadoId)} en la app que revise su progreso
+        </label>
         <div class="row-actions">
           <button class="primary" data-action="guardar-avance" data-key="${obj.id}" style="width:100%;">Guardar</button>
         </div>
@@ -530,38 +580,28 @@ async function renderInformeGastos(gastos) {
     return;
   }
 
-  const filaHTML = (item, totalRef, color) => {
-    const pct = totalRef > 0 ? Math.round((item.total / totalRef) * 100) : 0;
+  contCat.innerHTML = tarjetaTotalInformeHTML(total)
+    + `<div class="section-title" style="font-size:12px;margin:0 0 8px;">Por categoría</div>`
+    + porCategoria.map((item, i) => filaInformeHTML(item, total, COLORES_INFORME[i % COLORES_INFORME.length])).join('');
+
+  // Por sucursal, y dentro de cada una, desglosado por categoría. Cada
+  // tarjeta de sucursal toma un color de la misma paleta (por su
+  // posición en el ranking), y ese color tiñe tanto el borde como las
+  // barras internas de esa sucursal.
+  const bloqueSucursalHTML = porSucursalAnidado.map((suc, i) => {
+    const colorSuc = COLORES_INFORME[i % COLORES_INFORME.length];
     return `
-      <div class="ranking-item">
-        <div class="ranking-nombre">${item.clave}</div>
-        <div class="ranking-barra-track"><div class="ranking-barra-fill" style="width:${pct}%;background:${color}"></div></div>
-        <div class="ranking-pct">$ ${formatearMonto(item.total)}</div>
+      <div class="card" style="padding:14px 16px;margin-bottom:10px;border-left-color:${colorSuc};">
+        <div class="card-top">
+          <strong>${suc.clave}</strong>
+          <span style="font-weight:800;">$ ${formatearMonto(suc.total)}</span>
+        </div>
+        <div style="margin-top:8px;">
+          ${suc.subgrupos.map((sub, j) => filaInformeHTML(sub, suc.total, COLORES_INFORME[j % COLORES_INFORME.length])).join('')}
+        </div>
       </div>
     `;
-  };
-
-  contCat.innerHTML = `
-    <div class="card" style="padding:14px 16px;margin-bottom:10px;">
-      <span class="label">Total aprobado en el rango</span>
-      <div style="font-size:22px;font-weight:800;">$ ${formatearMonto(total)}</div>
-    </div>
-    <div class="section-title" style="font-size:12px;margin:0 0 8px;">Por categoría</div>
-    ${porCategoria.map(item => filaHTML(item, total, 'var(--azul)')).join('')}
-  `;
-
-  // Por sucursal, y dentro de cada una, desglosado por categoría.
-  const bloqueSucursalHTML = porSucursalAnidado.map(suc => `
-    <div class="card" style="padding:14px 16px;margin-bottom:10px;">
-      <div class="card-top">
-        <strong>${suc.clave}</strong>
-        <span style="font-weight:800;">$ ${formatearMonto(suc.total)}</span>
-      </div>
-      <div style="margin-top:8px;">
-        ${suc.subgrupos.map(sub => filaHTML(sub, suc.total, 'var(--verde)')).join('')}
-      </div>
-    </div>
-  `).join('');
+  }).join('');
   contSuc.innerHTML = `
     <div class="section-title" style="font-size:12px;margin:16px 0 8px;">Por sucursal</div>
     ${bloqueSucursalHTML}
@@ -753,8 +793,18 @@ document.addEventListener('click', (ev) => {
   if (rapidaBtn) {
     const key = rapidaBtn.dataset.key;
     const input = document.getElementById(`rapida-${key}`);
+    const fecha = document.getElementById('carga-rapida-fecha').value || hoyISO();
     if (!input.value) { alert('Ingresá un número de tickets.'); return; }
-    Repo.cargarTicketsDelDia(key, hoyISO(), input.value, '').then(() => {
+    const avisarChk = document.getElementById(`rapida-avisar-${key}`);
+    const avisar = avisarChk && avisarChk.checked;
+    const encargadoIdAvisar = avisarChk ? avisarChk.dataset.encargadoId : null;
+    Repo.cargarTicketsDelDia(key, fecha, input.value, '').then(() => {
+      if (avisar && encargadoIdAvisar) {
+        Repo.crearNotificacion({
+          encargadoId: encargadoIdAvisar,
+          mensaje: 'Se cargó tu ticket del día. Recordá entrar a la app todos los días para revisar tu progreso.',
+        }).catch(() => {});
+      }
       renderCargaRapida();
       renderProgreso();
       renderResumenDueno();
@@ -801,8 +851,17 @@ document.addEventListener('click', (ev) => {
     const fechaInput = document.getElementById(`fecha-${key}`);
     const valorInput = document.getElementById(`valor-${key}`);
     const notaInput = document.getElementById(`nota-${key}`);
+    const avisarChk = document.getElementById(`avisar-${key}`);
     if (!fechaInput.value || !valorInput.value) { alert('Completá la fecha y el valor.'); return; }
+    const avisar = avisarChk && avisarChk.checked;
+    const encargadoIdAvisar = avisarChk ? avisarChk.dataset.encargadoId : null;
     Repo.cargarTicketsDelDia(key, fechaInput.value, valorInput.value, notaInput.value).then(() => {
+      if (avisar && encargadoIdAvisar) {
+        Repo.crearNotificacion({
+          encargadoId: encargadoIdAvisar,
+          mensaje: 'Se cargó tu ticket del día. Recordá entrar a la app todos los días para revisar tu progreso.',
+        }).catch(() => {});
+      }
       renderCargaRapida();
       renderProgreso();
       renderResumenDueno();

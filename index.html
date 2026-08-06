@@ -14,7 +14,7 @@
   <div class="login-wrap">
     <div class="login-titulo">Control Diario</div>
     <div class="login-sub">ALISTA AHORRO — ingresá con el usuario y contraseña que te dio el dueño.</div>
-    <div class="card">
+    <div class="card" id="card-login">
       <label class="label" for="login-email">Email</label>
       <input type="email" id="login-email" placeholder="tu.usuario@alista.local" autocomplete="username">
       <label class="label" for="login-password">Contraseña</label>
@@ -22,6 +22,22 @@
       <div id="login-error" class="login-error" style="display:none;"></div>
       <div class="row-actions">
         <button class="primary" id="btn-login" style="width:100%;">Ingresar</button>
+      </div>
+      <div style="text-align:center;margin-top:14px;">
+        <button type="button" id="btn-olvide-clave" style="background:none;border:none;color:var(--azul);font-size:12.5px;font-weight:700;padding:6px;">¿Olvidaste tu contraseña?</button>
+      </div>
+    </div>
+
+    <div class="card" id="card-olvide-clave" style="display:none;">
+      <div class="card-title" style="margin-bottom:12px;">Recuperar contraseña</div>
+      <p class="hint" style="margin-top:-4px;">Ingresá el email con el que iniciás sesión. Si hay una cuenta con ese email, va a recibir un link para poner una contraseña nueva.</p>
+      <label class="label" for="olvide-email">Email</label>
+      <input type="email" id="olvide-email" placeholder="tu.usuario@alista.local" autocomplete="username">
+      <div id="olvide-error" class="login-error" style="display:none;"></div>
+      <div id="olvide-ok" class="login-error exito" style="display:none;"></div>
+      <div class="row-actions">
+        <button class="primary" data-action="enviar-recuperacion" style="width:100%;">Enviar link</button>
+        <button class="secondary" data-action="cancelar-olvide" style="width:100%;">Volver</button>
       </div>
     </div>
   </div>
@@ -61,9 +77,26 @@
 
   <section id="view-encargado" class="view active">
     <div id="encargado-propio" style="display:none;">
+      <div id="notificaciones-propio"></div>
       <div id="identidad-banner-propio"></div>
       <p class="hint">Este es tu progreso del mes. La carga de tickets la hace el dueño.</p>
       <div id="encargado-lista"></div>
+
+      <div class="section-title">Tareas de la semana</div>
+      <div class="row-actions" style="margin-top:0;">
+        <button class="secondary" id="btn-toggle-tareas-propio" style="width:100%;">Ver tareas de la semana</button>
+      </div>
+      <div id="panel-tareas-propio" style="display:none;">
+        <p class="hint" id="tareas-propio-rango"></p>
+        <div class="card">
+          <label class="label" for="tarea-propio-texto">Nueva tarea</label>
+          <input type="text" id="tarea-propio-texto" placeholder="Ej: pedir presupuesto de pintura">
+          <div class="row-actions">
+            <button class="primary" data-action="agregar-tarea-propio" style="width:100%;">Agregar tarea</button>
+          </div>
+        </div>
+        <div id="tareas-propio-lista"></div>
+      </div>
     </div>
     <div id="encargado-como-dueno" style="display:none;">
       <p class="hint">Elegí un encargado para ver su progreso, igual que lo ve él. Es solo lectura — para cargar o corregir tickets, usá tu panel de Dueño.</p>
@@ -71,6 +104,41 @@
       <select id="select-ver-encargado"></select>
       <div id="identidad-banner-dueno"></div>
       <div id="encargado-lista-dueno"></div>
+
+      <div class="section-title">Tareas de la semana</div>
+      <div class="row-actions" style="margin-top:0;">
+        <button class="secondary" id="btn-toggle-tareas-dueno" style="width:100%;">Ver tareas de la semana</button>
+      </div>
+      <div id="panel-tareas-dueno" style="display:none;">
+        <p class="hint" id="tareas-dueno-rango"></p>
+        <div class="card">
+          <label class="label" for="tarea-dueno-texto">Nueva tarea</label>
+          <input type="text" id="tarea-dueno-texto" placeholder="Ej: revisar stock de bebidas">
+          <div class="row-actions">
+            <button class="primary" data-action="agregar-tarea-dueno" style="width:100%;">Agregar tarea</button>
+          </div>
+        </div>
+        <div id="tareas-dueno-lista"></div>
+      </div>
+    </div>
+
+    <div class="section-title">Temas de reunión</div>
+    <p class="hint">Manual compartido entre vos y el resto: anotá temas para tratar, o respondé los de cualquiera. Queda guardado con el historial de cambios.</p>
+    <div class="row-actions" style="margin-top:0;">
+      <button class="secondary" id="btn-toggle-temas-reunion" style="width:100%;">Ver temas de reunión</button>
+    </div>
+    <div id="panel-temas-reunion" style="display:none;">
+      <div class="card">
+        <div class="card-title" style="margin-bottom:12px;">Nuevo tema</div>
+        <label class="label" for="tema-titulo">Título</label>
+        <input type="text" id="tema-titulo" placeholder="Ej: Horario de reparto de la sucursal Sur">
+        <label class="label" for="tema-descripcion">Descripción (opcional)</label>
+        <textarea id="tema-descripcion" placeholder="Contá el detalle del tema..."></textarea>
+        <div class="row-actions">
+          <button class="primary" data-action="crear-tema-reunion" style="width:100%;">Agregar tema</button>
+        </div>
+      </div>
+      <div id="temas-reunion-lista"></div>
     </div>
   </section>
 
@@ -78,7 +146,7 @@
     <div class="summary-bar" id="dueno-resumen"></div>
 
     <div class="section-title" style="margin-top:4px;">Propósito, misión y visión</div>
-    <p class="hint">Lo que cargues acá se le puede mostrar a cada encargado — elegís cuál de los tres ve cada uno desde su ficha, más abajo en "Encargados".</p>
+    <p class="hint">Lo que cargues acá se le puede mostrar a cada colaborador — elegís cuál de los tres ve cada uno desde su ficha, más abajo en "Colaboradores".</p>
     <div class="card">
       <label class="label" for="identidad-proposito">Propósito</label>
       <textarea id="identidad-proposito" placeholder="Para qué existe la empresa..."></textarea>
@@ -91,24 +159,35 @@
       </div>
     </div>
 
-    <div class="section-title">Encargados</div>
-    <div id="encargados-lista"></div>
-    <div class="card">
-      <div class="card-title" style="margin-bottom:12px;">Agregar encargado</div>
+    <div class="section-title">Colaboradores</div>
+    <div class="row-actions" style="margin-top:0;">
+      <button class="secondary" id="btn-toggle-encargados-lista" style="width:100%;">Ver colaboradores</button>
+    </div>
+    <div id="panel-encargados-lista" style="display:none;">
+      <div id="encargados-lista"></div>
+    </div>
+    <div class="row-actions" style="margin-top:0;">
+      <button class="secondary" id="btn-toggle-nuevo-encargado" style="width:100%;">Cargar nuevo colaborador</button>
+    </div>
+    <div class="card" id="panel-nuevo-encargado" style="display:none;">
+      <div class="card-title" style="margin-bottom:12px;">Agregar colaborador</div>
       <label class="label" for="nuevo-enc-nombre">Nombre</label>
       <input type="text" id="nuevo-enc-nombre" placeholder="Ej: Laura Fernández">
-      <label class="label" for="nuevo-enc-sucursal">Sucursal</label>
-      <input type="text" id="nuevo-enc-sucursal" placeholder="Ej: Sucursal Sur">
+      <label class="label" for="nuevo-enc-sucursal">Sucursal / área</label>
+      <input type="text" id="nuevo-enc-sucursal" placeholder="Ej: Sucursal Sur, Administración...">
       <label class="label" for="nuevo-enc-userid">ID de usuario (Supabase Auth)</label>
       <input type="text" id="nuevo-enc-userid" placeholder="Pegá el UUID después de crearle una cuenta">
-      <p class="hint" style="margin-top:-4px;">Primero creale una cuenta en Authentication &gt; Users del dashboard de Supabase, copiá su UUID y pegalo acá. Si todavía no le creaste la cuenta, dejalo vacío y volvé a editarlo después.</p>
+      <p class="hint" style="margin-top:-4px;">Primero creale una cuenta en Authentication &gt; Users del dashboard de Supabase, copiá su UUID y pegalo acá. Si todavía no le creaste la cuenta, dejalo vacío y volvé a editarlo después. Sirve igual para encargados de sucursal que para roles administrativos — el campo "Sucursal / área" es libre.</p>
       <div class="row-actions">
-        <button class="primary" data-action="crear-encargado" style="width:100%;">Agregar encargado</button>
+        <button class="primary" data-action="crear-encargado" style="width:100%;">Agregar colaborador</button>
       </div>
     </div>
 
     <div class="section-title">Crear objetivo de progreso</div>
-    <div class="card">
+    <div class="row-actions" style="margin-top:0;">
+      <button class="secondary" id="btn-toggle-nuevo-objetivo" style="width:100%;">Crear objetivo nuevo</button>
+    </div>
+    <div class="card" id="panel-nuevo-objetivo" style="display:none;">
       <label class="label" for="nuevo-obj-encargado">Encargado</label>
       <select id="nuevo-obj-encargado"></select>
       <label class="label" for="nuevo-titulo">Título</label>
@@ -133,9 +212,16 @@
       </div>
     </div>
 
-    <div class="section-title">Carga rápida de tickets de hoy</div>
-    <p class="hint">Un número por local, para el día de hoy. Los encargados pausados no aparecen acá.</p>
-    <div id="carga-rapida-lista"></div>
+    <div class="section-title">Carga rápida de tickets</div>
+    <div class="row-actions" style="margin-top:0;">
+      <button class="secondary" id="btn-toggle-carga-rapida" style="width:100%;">Cargar progreso</button>
+    </div>
+    <div id="panel-carga-rapida" style="display:none;">
+      <p class="hint">Elegí el día y cargá un número por local. Los encargados pausados no aparecen acá.</p>
+      <label class="label" for="carga-rapida-fecha">Fecha</label>
+      <input type="date" id="carga-rapida-fecha">
+      <div id="carga-rapida-lista"></div>
+    </div>
 
     <div class="section-title">Dashboard de progreso</div>
     <div id="progreso-lista"></div>
@@ -179,11 +265,35 @@
         </div>
       </div>
       <div id="mis-gastos-lista"></div>
+
+      <div class="section-title">Informe de mis gastos</div>
+      <p class="hint">Solo tus gastos ya aprobados, de tu sucursal, dentro del rango elegido.</p>
+      <div class="card">
+        <div class="field-row">
+          <div>
+            <label class="label" for="informe-propio-desde">Desde</label>
+            <input type="date" id="informe-propio-desde">
+          </div>
+          <div>
+            <label class="label" for="informe-propio-hasta">Hasta</label>
+            <input type="date" id="informe-propio-hasta">
+          </div>
+        </div>
+        <div class="row-actions">
+          <button class="secondary" data-action="filtrar-informe-propio" style="width:100%;">Actualizar informe</button>
+        </div>
+      </div>
+      <div id="informe-propio-categoria"></div>
     </div>
 
     <div id="gastos-dueno" style="display:none;">
       <div class="section-title" style="margin-top:4px;">Categorías de gasto</div>
-      <div id="categorias-gasto-lista"></div>
+      <div class="row-actions" style="margin-top:0;">
+        <button class="secondary" id="btn-toggle-categorias-gasto" style="width:100%;">Ver categorías</button>
+      </div>
+      <div id="panel-categorias-gasto" style="display:none;">
+        <div id="categorias-gasto-lista"></div>
+      </div>
       <div class="card">
         <div class="card-title" style="margin-bottom:12px;">Agregar categoría</div>
         <label class="label" for="nueva-categoria-nombre">Nombre</label>
@@ -194,7 +304,12 @@
       </div>
 
       <div class="section-title">Proveedores</div>
-      <div id="proveedores-lista"></div>
+      <div class="row-actions" style="margin-top:0;">
+        <button class="secondary" id="btn-toggle-proveedores" style="width:100%;">Ver proveedores</button>
+      </div>
+      <div id="panel-proveedores" style="display:none;">
+        <div id="proveedores-lista"></div>
+      </div>
       <div class="card">
         <div class="card-title" style="margin-bottom:12px;">Agregar proveedor</div>
         <label class="label" for="nuevo-proveedor-nombre">Nombre</label>

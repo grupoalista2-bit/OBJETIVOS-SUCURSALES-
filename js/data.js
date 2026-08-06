@@ -32,6 +32,47 @@ function mapIdentidadDB(row) {
   };
 }
 
+function mapTareaDB(row) {
+  return {
+    id: row.id,
+    encargadoId: row.encargado_id,
+    semana: row.semana,
+    texto: row.texto,
+    estado: row.estado,
+    creadoPor: row.creado_por,
+    creadoEn: row.creado_en,
+    hechaEn: row.hecha_en,
+    canceladaPor: row.cancelada_por || '',
+    canceladaMotivo: row.cancelada_motivo || '',
+    canceladaEn: row.cancelada_en,
+  };
+}
+
+function mapTemaDB(row) {
+  return {
+    id: row.id,
+    titulo: row.titulo,
+    descripcion: row.descripcion || '',
+    respuesta: row.respuesta || '',
+    estado: row.estado,
+    creadoPor: row.creado_por,
+    creadoEn: row.creado_en,
+    actualizadoEn: row.actualizado_en,
+    historial: row.historial || [],
+  };
+}
+
+function mapNotificacionDB(row) {
+  return {
+    id: row.id,
+    encargadoId: row.encargado_id,
+    mensaje: row.mensaje,
+    creadoPor: row.creado_por,
+    creadoEn: row.creado_en,
+    leida: row.leida,
+  };
+}
+
 function mapCategoriaGastoDB(row) {
   return { id: row.id, nombre: row.nombre, activa: row.activa };
 }
@@ -94,6 +135,20 @@ const Auth = {
     await supabaseClient.auth.signOut();
   },
 
+  // Pide, desde la pantalla de login (sin haber entrado todavía), que le
+  // llegue un mail de recuperación al email indicado. Por seguridad,
+  // Supabase no distingue "ese email no tiene cuenta" de "se mandó bien"
+  // — así nadie puede usar este formulario para averiguar qué emails
+  // están registrados. redirectTo apunta al mismo origen desde el que se
+  // pide, para que el link del mail vuelva a esta misma app.
+  async recuperarPassword(email) {
+    const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+      redirectTo: window.location.origin,
+    });
+    if (error) return { ok: false, mensaje: error.message || 'No se pudo enviar el link. Probá de nuevo en un rato.' };
+    return { ok: true };
+  },
+
   // Cambia la contraseña de la cuenta CON LA QUE YA SE ESTÁ LOGUEADO en
   // este dispositivo (no sirve para resetear la contraseña de otro
   // usuario sin conocerla primero — para eso hay que ir al dashboard de
@@ -131,6 +186,16 @@ const Auth = {
     const { data, error } = await supabaseClient.from('encargados').select('*').eq('user_id', uid).maybeSingle();
     if (error || !data) return null;
     return mapEncargadoDB(data);
+  },
+
+  // Nombre para mostrar como autor de una tarea o un tema de reunión: el
+  // nombre del colaborador, o "Dueño" si quien está logueado es el dueño
+  // (no hay un campo de nombre propio guardado para esa cuenta).
+  async nombreActor() {
+    const esDueno = await this.esDueno();
+    if (esDueno) return 'Dueño';
+    const enc = await this.miEncargado();
+    return enc ? enc.nombre : 'Usuario';
   },
 };
 
@@ -385,6 +450,147 @@ const Repo = {
     const { data, error } = await supabaseClient.from('gastos').update(cambios).eq('id', id).select().single();
     if (error) throw error;
     return data;
+  },
+
+  // Lo usa el ENCARGADO para marcar como pagado un gasto propio que ya
+  // está aprobado (no un gasto de otro, ni uno todavía pendiente de
+  // aprobación) -- llama a una función de la base que valida eso mismo
+  // del lado del servidor, ver sql/marcar_pagado_encargado.sql.
+  async marcarGastoPagadoPropio(id, { formaPago, chequeNumero, chequeFirma }) {
+    const { data, error } = await supabaseClient.rpc('marcar_gasto_pagado_propio', {
+      p_gasto_id: id,
+      p_forma_pago: formaPago || null,
+      p_cheque_numero: chequeNumero !== undefined ? chequeNumero : null,
+      p_cheque_firma: chequeFirma !== undefined ? chequeFirma : null,
+    });
+    if (error) throw error;
+    return data;
+  },
+
+  // ---- Tareas de la semana ----
+
+  async getTareasSemana(encargadoId, semana) {
+    const { data, error } = await supabaseClient.from('tareas_semana').select('*')
+      .eq('encargado_id', encargadoId)
+      .eq('semana', semana)
+      .order('creado_en', { ascending: true });
+    if (error) throw error;
+    return data.map(mapTareaDB);
+  },
+
+  async crearTareaSemana({ encargadoId, semana, texto, creadoPor }) {
+    const { data, error } = await supabaseClient.from('tareas_semana').insert({
+      encargado_id: encargadoId,
+      semana,
+      texto: texto.trim(),
+      creado_por: creadoPor,
+    }).select().single();
+    if (error) throw error;
+    return mapTareaDB(data);
+  },
+
+  async marcarTareaHecha(id) {
+    const { data, error } = await supabaseClient.from('tareas_semana')
+      .update({ estado: 'hecha', hecha_en: new Date().toISOString() })
+      .eq('id', id).select().single();
+    if (error) throw error;
+    return mapTareaDB(data);
+  },
+
+  async reabrirTarea(id) {
+    const { data, error } = await supabaseClient.from('tareas_semana')
+      .update({ estado: 'pendiente', hecha_en: null })
+      .eq('id', id).select().single();
+    if (error) throw error;
+    return mapTareaDB(data);
+  },
+
+  // "Sacar" una tarea nunca la borra: queda marcada como cancelada, con
+  // quién la sacó y por qué, para que quede el registro.
+  async cancelarTarea(id, { canceladaPor, motivo }) {
+    const { data, error } = await supabaseClient.from('tareas_semana')
+      .update({
+        estado: 'cancelada',
+        cancelada_por: canceladaPor,
+        cancelada_motivo: motivo || '',
+        cancelada_en: new Date().toISOString(),
+      })
+      .eq('id', id).select().single();
+    if (error) throw error;
+    return mapTareaDB(data);
+  },
+
+  // ---- Temas de reunión (manual compartido) ----
+
+  async getTemasReunion() {
+    const { data, error } = await supabaseClient.from('temas_reunion').select('*')
+      .order('creado_en', { ascending: false });
+    if (error) throw error;
+    return data.map(mapTemaDB);
+  },
+
+  async crearTemaReunion({ titulo, descripcion, creadoPor }) {
+    const { data, error } = await supabaseClient.from('temas_reunion').insert({
+      titulo: titulo.trim(),
+      descripcion: (descripcion || '').trim(),
+      creado_por: creadoPor,
+    }).select().single();
+    if (error) throw error;
+    return mapTemaDB(data);
+  },
+
+  // Cualquiera puede editar cualquier tema (título, respuesta, estado);
+  // lo que da trazabilidad es que cada edición se AGREGA al historial en
+  // vez de pisar el anterior. Por eso primero se trae la fila actual: para
+  // no perder el historial ya guardado antes de agregarle la entrada nueva.
+  async editarTemaReunion(id, { titulo, descripcion, respuesta, estado, autor, comentario }) {
+    const { data: actual, error: errActual } = await supabaseClient.from('temas_reunion')
+      .select('historial').eq('id', id).single();
+    if (errActual) throw errActual;
+    const historial = (actual.historial || []).concat([{
+      fecha: new Date().toISOString(),
+      autor,
+      comentario: (comentario || '').trim(),
+    }]);
+
+    const cambios = { historial, actualizado_en: new Date().toISOString() };
+    if (titulo !== undefined) cambios.titulo = titulo.trim();
+    if (descripcion !== undefined) cambios.descripcion = (descripcion || '').trim();
+    if (respuesta !== undefined) cambios.respuesta = (respuesta || '').trim();
+    if (estado !== undefined) cambios.estado = estado;
+
+    const { data, error } = await supabaseClient.from('temas_reunion').update(cambios).eq('id', id).select().single();
+    if (error) throw error;
+    return mapTemaDB(data);
+  },
+
+  // ---- Notificaciones (el dueño le avisa algo a un colaborador) ----
+
+  async getNotificacionesNoLeidas(encargadoId) {
+    const { data, error } = await supabaseClient.from('notificaciones').select('*')
+      .eq('encargado_id', encargadoId)
+      .eq('leida', false)
+      .order('creado_en', { ascending: false });
+    if (error) throw error;
+    return data.map(mapNotificacionDB);
+  },
+
+  async crearNotificacion({ encargadoId, mensaje, creadoPor }) {
+    const { data, error } = await supabaseClient.from('notificaciones').insert({
+      encargado_id: encargadoId,
+      mensaje: mensaje.trim(),
+      creado_por: creadoPor || 'Dueño',
+    }).select().single();
+    if (error) throw error;
+    return mapNotificacionDB(data);
+  },
+
+  async marcarNotificacionLeida(id) {
+    const { data, error } = await supabaseClient.from('notificaciones')
+      .update({ leida: true, leida_en: new Date().toISOString() })
+      .eq('id', id).select().single();
+    if (error) throw error;
+    return mapNotificacionDB(data);
   },
 };
 

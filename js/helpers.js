@@ -173,26 +173,58 @@ function agruparGastosAprobadosAnidado(gastos, desde, hasta, campoExterno, campo
   });
 }
 
+// ---- Semana calendario (lunes a domingo), para tareas de la semana ----
+
+// Fecha 'YYYY-MM-DD' del lunes de la semana que contiene "fecha" (hoy si
+// no se pasa nada). Sirve como identificador de "a qué semana pertenece"
+// una tarea, sin depender del mes.
+function lunesDeLaSemana(fecha) {
+  const f = fecha || new Date();
+  const dow = (f.getDay() + 6) % 7; // 0 = lunes
+  const lunes = new Date(f.getFullYear(), f.getMonth(), f.getDate() - dow);
+  return hoyISO(lunes);
+}
+
+// 'YYYY-MM-DD' (un lunes) -> "DD/MM – DD/MM" para mostrar el rango de esa
+// semana completa.
+function formatearRangoSemana(lunesISO) {
+  const [anio, mes, dia] = lunesISO.split('-').map(Number);
+  const domingo = new Date(anio, mes - 1, dia + 6);
+  return `${formatearFechaCorta(lunesISO)} – ${formatearFechaCorta(hoyISO(domingo))}`;
+}
+
 // ---- Progreso semanal de un objetivo ----
 
-// Parte el mes en semanas de lunes a domingo. La primera y la última
-// semana quedan "recortadas" si el mes no arranca un lunes o no termina
-// un domingo (por ejemplo, si el 1 del mes es un jueves, la semana 1 va
-// del 1 al domingo siguiente nada más).
+// Parte el mes en semanas de lunes a domingo COMPLETAS: si el mes no
+// arranca un lunes, la primera semana se extiende hacia atrás hasta el
+// lunes anterior (aunque caiga en el mes previo); si no termina un
+// domingo, la última se extiende hacia adelante hasta el domingo
+// siguiente. Así ninguna semana queda "cortada" a dos o tres días — cada
+// una es siempre una semana calendario real, lunes a domingo, sea o no
+// laboral el domingo. progresoSemanalObjetivo() es quien después recorta,
+// solo para el cálculo de la meta, la parte de cada semana que cae fuera
+// del mes (esos días no son parte de este objetivo).
 function semanasDelMes(mesISO) {
   const [anio, mes] = mesISO.split('-').map(Number);
   const ultimoDia = new Date(anio, mes, 0).getDate();
+
+  const dowPrimero = (new Date(anio, mes - 1, 1).getDay() + 6) % 7; // 0 = lunes
+  const inicioPrimeraSemana = new Date(anio, mes - 1, 1 - dowPrimero);
+
+  const dowUltimo = (new Date(anio, mes - 1, ultimoDia).getDay() + 6) % 7;
+  const finUltimaSemana = new Date(anio, mes - 1, ultimoDia + (6 - dowUltimo));
+
   const semanas = [];
-  let dia = 1;
-  while (dia <= ultimoDia) {
-    const dow = (new Date(anio, mes - 1, dia).getDay() + 6) % 7; // 0 = lunes
-    const finSemana = Math.min(ultimoDia, dia + (6 - dow));
+  const cursor = new Date(inicioPrimeraSemana);
+  while (cursor <= finUltimaSemana) {
+    const finSemana = new Date(cursor);
+    finSemana.setDate(finSemana.getDate() + 6);
     semanas.push({
       numero: semanas.length + 1,
-      inicio: `${mesISO}-${String(dia).padStart(2, '0')}`,
-      fin: `${mesISO}-${String(finSemana).padStart(2, '0')}`,
+      inicio: hoyISO(cursor),
+      fin: hoyISO(finSemana),
     });
-    dia = finSemana + 1;
+    cursor.setDate(cursor.getDate() + 7);
   }
   return semanas;
 }
@@ -223,9 +255,19 @@ function progresoSemanalObjetivo(obj, hoy) {
   const diasHabilesTotales = diasHabilesDelMes(obj.mes, obj.diasNoLaborales);
   const ref = hoy || new Date();
   const hoyISOStr = hoyISO(ref);
+  const primerDiaMes = `${obj.mes}-01`;
+  const ultimoDiaMes = `${obj.mes}-${String(ultimoDiaDelMes(obj.mes)).padStart(2, '0')}`;
 
   return semanas.map(sem => {
-    const diasHabilesSemana = contarDiasHabilesEnRango(sem.inicio, sem.fin, obj.diasNoLaborales);
+    // La semana que se MUESTRA siempre es lunes a domingo completa, pero
+    // los días hábiles (y por lo tanto la meta) solo se cuentan dentro de
+    // este mes: los días de la semana que caen en el mes anterior o
+    // siguiente no son parte de este objetivo.
+    const desdeClip = sem.inicio < primerDiaMes ? primerDiaMes : sem.inicio;
+    const hastaClip = sem.fin > ultimoDiaMes ? ultimoDiaMes : sem.fin;
+    const diasHabilesSemana = desdeClip <= hastaClip
+      ? contarDiasHabilesEnRango(desdeClip, hastaClip, obj.diasNoLaborales)
+      : 0;
     const metaSemana = diasHabilesTotales > 0
       ? Math.round(obj.meta * (diasHabilesSemana / diasHabilesTotales))
       : 0;

@@ -30,6 +30,41 @@ Si ya tenías la app funcionando y agregás este módulo después, hace falta co
 
 Si ya tenías la app funcionando, hace falta correr `sql/identidad.sql` una vez en el SQL Editor de Supabase (además de los anteriores) y volver a subir los archivos de código actualizados a GitHub.
 
+## Encargado marca su propio gasto como pagado
+
+Antes, solo el dueño podía marcar un gasto aprobado como pagado. Ahora, en la pestaña Gastos del encargado, cada gasto ya aprobado y todavía no pagado tiene un botón "Marcar como pagado" — pero solo el encargado que lo cargó puede tocar el suyo, y solo la parte de pago (forma de pago, número de cheque, firma): no puede cambiar el monto, la categoría ni nada más de un gasto ya aprobado. Eso lo garantiza `sql/marcar_pagado_encargado.sql`, una función de la base que valida todo del lado del servidor antes de dejar pasar el cambio (no alcanza con una política de fila normal, porque esas no pueden impedir que de paso se cambien otras columnas).
+
+Si ya tenías la app funcionando, hace falta correr `sql/marcar_pagado_encargado.sql` una vez en el SQL Editor de Supabase (además de los anteriores) y volver a subir el código actualizado.
+
+## Progreso semanal, informe del encargado y estética (actualización)
+
+- **Semanas siempre completas.** El "Progreso semanal" ahora agrupa siempre de lunes a domingo (7 días), incluso la primera y la última semana del mes cuando el mes no arranca un lunes o no termina un domingo — antes esas quedaban "cortadas" a 2 o 3 días, ahora se completan con los días del mes vecino solo para mostrar la fecha; la meta de cada semana se sigue calculando únicamente con los días que caen dentro del mes del objetivo.
+- **Informe de gastos para el encargado.** En su pestaña Gastos, cada encargado ahora tiene su propio "Informe de mis gastos" — mismo tipo de informe que el del dueño (total + desglose por categoría, con rango de fechas), pero acotado a sus propios gastos aprobados (nunca ve los de otra sucursal; eso ya lo garantiza la seguridad de la base, no la pantalla).
+- **Informe más visual.** Tanto el del dueño como el del encargado ahora usan un color distinto por categoría/sucursal (con un punto de color al lado del nombre) y muestran el porcentaje junto al monto, además de una tarjeta de total con más jerarquía visual.
+
+No requiere SQL nuevo — solo subir el código actualizado.
+
+## Tareas de la semana y Temas de reunión (actualización)
+
+Dos secciones nuevas en la pestaña Encargado, las dos colapsadas detrás de un botón "Ver..." y que recién piden datos a Supabase cuando se abren — así no le suman peso al arranque de la app ni al cambio de pestañas.
+
+- **Tareas de la semana.** Cada colaborador tiene su propia lista, agrupada por semana (lunes a domingo). Tanto el dueño (eligiendo el colaborador desde el selector de siempre) como el propio colaborador pueden agregar tareas y marcarlas como hechas. "Sacar" una tarea nunca la borra: queda tachada, con quién la sacó y por qué motivo — el registro no se pierde.
+- **Temas de reunión.** Un manual compartido, visible para todos (dueño y cada colaborador): cualquiera puede anotar un tema nuevo, y cualquiera puede completar o corregir la respuesta/solución y cambiar el estado (Pendiente de tratar en reunión / Tratado). Cada edición se agrega al historial del tema (fecha, quién la hizo, y un comentario breve opcional) sin borrar lo anterior — funciona como un diccionario que se va corrigiendo con el tiempo, con el registro de cada cambio a la vista.
+
+**Nota de seguridad:** a diferencia del resto de la app, los Temas de reunión están pensados para que CUALQUIER usuario logueado pueda editar CUALQUIER tema (no solo el que lo escribió) — es intencional, para que funcione como manual colaborativo. La responsabilidad queda en el historial de cambios, no en restringir quién puede tocar cada tema.
+
+Si ya tenías la app funcionando, hace falta correr `sql/tareas_y_temas.sql` una vez en el SQL Editor de Supabase y volver a subir el código actualizado.
+
+## Notificaciones del dueño (actualización)
+
+Al cargar un ticket (tanto desde "Carga rápida" como desde "Cargar / corregir un día" en el Dashboard), el dueño ahora tiene un casillero "Avisarle a [nombre] en la app que revise su progreso". Si lo tilda antes de guardar, al colaborador correspondiente le aparece un mensaje arriba de todo en su pestaña Encargado, apenas entra a la app, con un botón "Ya lo vi" para descartarlo.
+
+- El casillero arranca destildado en las dos pantallas: el dueño lo tilda solo cuando quiere avisar, así no se manda un mensaje en cada carga si no hace falta.
+- Cada colaborador solo ve y puede marcar como leídas sus propias notificaciones, nunca las de otro — solo el dueño puede crearlas. Eso lo garantiza Row Level Security (ver `sql/notificaciones.sql`), igual que el resto de la app.
+- El mensaje que se manda es siempre el mismo, pensado para que el colaborador se acostumbre a entrar a la app todos los días a revisar su progreso.
+
+Si ya tenías la app funcionando, hace falta correr `sql/notificaciones.sql` una vez en el SQL Editor de Supabase y volver a subir el código actualizado.
+
 ## Estructura del proyecto
 
 ```
@@ -46,6 +81,9 @@ control-diario-app-supabase/
   sql/gastos.sql                 script SQL del módulo de gastos (categorías, gastos, RLS)
   sql/gastos_v2.sql               ampliación: proveedores, forma de pago, cheque, estado de pago
   sql/identidad.sql                identidad institucional (propósito/misión/visión) y flags de visibilidad
+  sql/marcar_pagado_encargado.sql  función para que el encargado marque pagado su propio gasto aprobado
+  sql/tareas_y_temas.sql           tareas de la semana por colaborador + manual compartido de temas de reunión
+  sql/notificaciones.sql           mensajes cortos del dueño a un colaborador puntual (recordatorio al cargar un ticket)
 ```
 
 ## Puesta en marcha, paso a paso
@@ -133,11 +171,13 @@ Si preferís no usar la terminal, GitHub también permite arrastrar los archivos
 
 Cada `git push` posterior actualiza la página sola.
 
-## "Olvidé mi contraseña" — recuperarla desde el mail
+## "Olvidé mi contraseña"
 
-1. En el dashboard de Supabase: **Authentication → Users**, hacé clic en la persona, y en **"Reset password"** tocá **"Send password recovery"**. Le llega un mail a la casilla real que tenga cargada esa cuenta.
-2. Al tocar el link del mail, la app lo detecta sola y muestra una pantalla para poner la contraseña nueva (dos veces, para confirmar). Al guardar, cierra esa sesión temporal y pide loguearse de nuevo ya con la contraseña nueva.
-3. **Importante:** para que el link del mail redirija a tu app y no a otro lado (por ejemplo `localhost`), el proyecto de Supabase tiene que tener configurada la URL correcta. Andá a **Authentication → URL Configuration** y fijate que **Site URL** sea la URL pública de tu app (por ejemplo `https://objetivos-sucursales.vercel.app`), sin la barra `/` al final. Si la cambiás, los links que ya te llegaron por mail antes del cambio quedan viejos — pedí que te reenvíen uno nuevo después de corregir la URL.
+- **Sin haber entrado todavía:** en la pantalla de login hay un link "¿Olvidaste tu contraseña?". Se pone el email y, si existe una cuenta con ese email, le llega un link para poner una contraseña nueva. Por seguridad, la app no dice si el email existe o no — el mensaje es el mismo en los dos casos, así nadie puede usar este formulario para averiguar qué emails están registrados en el sistema.
+- **El dueño también puede iniciarlo por vos** desde el dashboard de Supabase: **Authentication → Users**, clic en la persona, **"Reset password" → "Send password recovery"**.
+- En cualquiera de los dos casos, al tocar el link del mail la app lo detecta sola y muestra una pantalla para poner la contraseña nueva (dos veces, para confirmar). Al guardar, cierra esa sesión temporal y pide loguearse de nuevo ya con la contraseña nueva.
+- **Importante:** para que el link del mail redirija a la app y no a otro lado (por ejemplo `localhost`), el proyecto de Supabase tiene que tener configurada la URL correcta. Andá a **Authentication → URL Configuration** y fijate que **Site URL** sea la URL pública de la app (por ejemplo `https://objetivos-sucursales.vercel.app`), sin la barra `/` al final.
+- **Límite de mails:** sin un proveedor de correo propio configurado, Supabase deja mandar solo 2-3 mails de este tipo por hora. Si aparece "email rate limit exceeded", hay que esperar un rato antes de pedir otro.
 
 Además, cualquiera que ya esté logueado (dueño o encargado) puede cambiar su propia contraseña sin pasar por el mail: botón **"Contraseña"** junto a "Cerrar sesión", arriba de todo.
 

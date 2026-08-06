@@ -46,6 +46,24 @@ function identidadBannerHTML(identidad, encargado) {
   `;
 }
 
+// ---- Notificaciones del dueño (recordatorios puntuales, p. ej. al cargar
+// un ticket). Se muestran arriba de todo, sin colapsar, hasta que el
+// colaborador las marca como vistas. ----
+
+function notificacionHTML(n) {
+  return `
+    <div class="card estado-amarillo" style="padding:12px 16px;margin-bottom:8px;">
+      <div class="encargado-row">
+        <div style="flex:1;min-width:140px;">
+          <div style="font-weight:600;">${n.mensaje}</div>
+          <div class="hint" style="margin:2px 0 0;">${n.creadoPor} · ${new Date(n.creadoEn).toLocaleDateString('es-AR')}</div>
+        </div>
+        <button class="secondary" data-action="marcar-notificacion-leida" data-key="${n.id}">Ya lo vi</button>
+      </div>
+    </div>
+  `;
+}
+
 function tarjetaProgresoSoloLecturaHTML(obj) {
   const { avance, superado, r, unidad, mensajeEstado, colorCard } = resumenObjetivoProgreso(obj);
 
@@ -95,6 +113,32 @@ const ESTADO_GASTO_COLOR = { pendiente: 'amarillo', aprobado: 'verde', rechazado
 const ESTADO_PAGO_LABEL = { pendiente: 'Pendiente de pago', pagado: 'Pagado' };
 const ESTADO_PAGO_COLOR = { pendiente: 'amarillo', pagado: 'verde' };
 const FORMA_PAGO_LABEL = { efectivo: 'Efectivo', transferencia: 'Transferencia', cheque: 'Cheque' };
+
+// ---- Informe de gastos (compartido entre el del dueño, en ui-dueno.js, y
+// el de cada encargado sobre su propia sucursal, más abajo) ----
+
+const COLORES_INFORME = ['#2563eb', '#16a34a', '#dc2626', '#d97706', '#7c3aed', '#0891b2', '#db2777', '#78350f'];
+
+function filaInformeHTML(item, totalRef, color) {
+  const pct = totalRef > 0 ? Math.round((item.total / totalRef) * 100) : 0;
+  return `
+    <div class="ranking-item">
+      <span class="leyenda-dot" style="background:${color};"></span>
+      <div class="ranking-nombre">${item.clave}</div>
+      <div class="ranking-barra-track"><div class="ranking-barra-fill" style="width:${pct}%;background:${color}"></div></div>
+      <div class="ranking-pct">$ ${formatearMonto(item.total)} <span style="opacity:.55;font-weight:600;">· ${pct}%</span></div>
+    </div>
+  `;
+}
+
+function tarjetaTotalInformeHTML(total) {
+  return `
+    <div class="card" style="padding:18px 20px;margin-bottom:14px;background:linear-gradient(135deg, var(--azul-bg), var(--superficie));">
+      <span class="label">Total aprobado en el rango</span>
+      <div style="font-size:26px;font-weight:800;">$ ${formatearMonto(total)}</div>
+    </div>
+  `;
+}
 
 async function poblarSelectCategoriaGasto() {
   const sel = document.getElementById('gasto-categoria');
@@ -146,11 +190,31 @@ function detalleFormaPagoHTML(g) {
   return partes.length ? `${base} (${partes.join(', ')})` : base;
 }
 
+// camposFormaPagoHTML() y opcionesFormaPago() están definidas en
+// ui-dueno.js (mismo patrón que usan sus colas de aprobación y de pago),
+// pero como acá solo se usan adentro de una función que se ejecuta
+// después de que todos los scripts ya cargaron, no importa que estén en
+// un archivo que se carga más tarde -- para cuando de verdad se llaman,
+// ya existen.
 function tarjetaGastoHTML(g) {
   const color = ESTADO_GASTO_COLOR[g.estado] || 'gris';
   const pagoTagHTML = g.estado === 'aprobado'
     ? `<span class="estado-tag estado-${ESTADO_PAGO_COLOR[g.estadoPago] || 'gris'}" style="margin-left:6px;">${ESTADO_PAGO_LABEL[g.estadoPago] || g.estadoPago}</span>`
     : '';
+
+  const puedeMarcarPagado = g.estado === 'aprobado' && g.estadoPago === 'pendiente';
+  const marcarPagadoHTML = puedeMarcarPagado ? `
+    <div class="row-actions">
+      <button class="secondary" data-action="toggle-marcar-pagado-propio" data-key="${g.id}" style="width:100%;">Marcar como pagado</button>
+    </div>
+    <div id="mp-${g.id}" style="display:none;margin-top:10px;">
+      ${camposFormaPagoHTML('mp', g)}
+      <div class="row-actions">
+        <button class="primary" data-action="confirmar-pagado-propio" data-key="${g.id}" style="width:100%;">Confirmar pago</button>
+      </div>
+    </div>
+  ` : '';
+
   return `
     <div class="card estado-${color}" style="padding:12px 16px;">
       <div class="card-top">
@@ -165,8 +229,38 @@ function tarjetaGastoHTML(g) {
       </div>
       <div style="font-size:17px;font-weight:800;margin-top:6px;">$ ${formatearMonto(g.monto)}</div>
       ${g.nota ? `<div class="historial-nota" style="margin-top:6px;">${g.nota}</div>` : ''}
+      ${marcarPagadoHTML}
     </div>
   `;
+}
+
+// Informe de gastos de UN encargado: solo su propia sucursal (RLS ya
+// garantiza que Repo.getMisGastos() no puede traer gastos de nadie más),
+// solo aprobados, dentro del rango de fechas elegido.
+async function renderInformeGastosPropio(encargadoId) {
+  const contCat = document.getElementById('informe-propio-categoria');
+  if (!contCat) return;
+
+  const desdeInput = document.getElementById('informe-propio-desde');
+  const hastaInput = document.getElementById('informe-propio-hasta');
+  if (!desdeInput.value) desdeInput.value = mesActualISO() + '-01';
+  if (!hastaInput.value) hastaInput.value = hoyISO();
+
+  try {
+    const gastos = await Repo.getMisGastos(encargadoId);
+    const porCategoria = agruparGastosAprobados(gastos, desdeInput.value, hastaInput.value, 'categoriaNombre');
+    const total = porCategoria.reduce((s, x) => s + x.total, 0);
+
+    if (porCategoria.length === 0) {
+      contCat.innerHTML = '<div class="empty-msg">No hay gastos aprobados tuyos en ese rango de fechas.</div>';
+      return;
+    }
+
+    contCat.innerHTML = tarjetaTotalInformeHTML(total)
+      + porCategoria.map((item, i) => filaInformeHTML(item, total, COLORES_INFORME[i % COLORES_INFORME.length])).join('');
+  } catch (e) {
+    contCat.innerHTML = '<div class="empty-msg">No se pudo cargar el informe. Revisá tu conexión.</div>';
+  }
 }
 
 async function renderMisGastos(encargadoId) {
@@ -184,8 +278,7 @@ async function renderMisGastos(encargadoId) {
 
 document.addEventListener('click', (ev) => {
   const crearGastoBtn = ev.target.closest('[data-action="crear-gasto"]');
-  if (!crearGastoBtn) return;
-
+  if (crearGastoBtn) {
   (async () => {
     const encargado = await Auth.miEncargado();
     if (!encargado) { alert('Tu usuario todavía no está vinculado a ningún encargado.'); return; }
@@ -221,6 +314,168 @@ document.addEventListener('click', (ev) => {
       renderMisGastos(encargado.id);
     }).catch(manejarErrorRepo);
   })();
+    return;
+  }
+
+  const toggleMarcarPagadoBtn = ev.target.closest('[data-action="toggle-marcar-pagado-propio"]');
+  if (toggleMarcarPagadoBtn) {
+    const el = document.getElementById('mp-' + toggleMarcarPagadoBtn.dataset.key);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+    return;
+  }
+
+  const confirmarPagadoBtn = ev.target.closest('[data-action="confirmar-pagado-propio"]');
+  if (confirmarPagadoBtn) {
+    const key = confirmarPagadoBtn.dataset.key;
+    const formaPago = document.getElementById(`mp-forma-${key}`).value;
+    const chequeNumero = document.getElementById(`mp-cheque-num-${key}`).value;
+    const chequeFirma = document.getElementById(`mp-cheque-firma-${key}`).value;
+    if (formaPago === 'cheque' && (!chequeNumero || !chequeFirma)) {
+      alert('Completá el número de cheque y la firma antes de confirmar el pago.');
+      return;
+    }
+    (async () => {
+      const encargado = await Auth.miEncargado();
+      if (!encargado) return;
+      Repo.marcarGastoPagadoPropio(key, { formaPago, chequeNumero, chequeFirma }).then(() => {
+        renderMisGastos(encargado.id);
+      }).catch(manejarErrorRepo);
+    })();
+    return;
+  }
+
+  const marcarNotifLeidaBtn = ev.target.closest('[data-action="marcar-notificacion-leida"]');
+  if (marcarNotifLeidaBtn) {
+    const id = marcarNotifLeidaBtn.dataset.key;
+    Repo.marcarNotificacionLeida(id).then(async () => {
+      const encargado = await Auth.miEncargado();
+      if (encargado) renderNotificacionesPropio(encargado.id);
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  const filtrarInformePropioBtn = ev.target.closest('[data-action="filtrar-informe-propio"]');
+  if (filtrarInformePropioBtn) {
+    (async () => {
+      const encargado = await Auth.miEncargado();
+      if (encargado) renderInformeGastosPropio(encargado.id);
+    })();
+    return;
+  }
+
+  // --- Tareas de la semana ---
+
+  const agregarTareaPropioBtn = ev.target.closest('[data-action="agregar-tarea-propio"]');
+  if (agregarTareaPropioBtn) {
+    (async () => {
+      const input = document.getElementById('tarea-propio-texto');
+      const texto = input.value.trim();
+      if (!texto) { alert('Escribí la tarea.'); return; }
+      const encargado = await Auth.miEncargado();
+      if (!encargado) return;
+      const nombre = await Auth.nombreActor();
+      Repo.crearTareaSemana({ encargadoId: encargado.id, semana: lunesDeLaSemana(), texto, creadoPor: nombre }).then(() => {
+        input.value = '';
+        renderTareasSemana('tareas-propio-lista', 'tareas-propio-rango', encargado.id);
+      }).catch(manejarErrorRepo);
+    })();
+    return;
+  }
+
+  const agregarTareaDuenoBtn = ev.target.closest('[data-action="agregar-tarea-dueno"]');
+  if (agregarTareaDuenoBtn) {
+    (async () => {
+      const input = document.getElementById('tarea-dueno-texto');
+      const texto = input.value.trim();
+      if (!texto) { alert('Escribí la tarea.'); return; }
+      const sel = document.getElementById('select-ver-encargado');
+      if (!sel || !sel.value) return;
+      Repo.crearTareaSemana({ encargadoId: sel.value, semana: lunesDeLaSemana(), texto, creadoPor: 'Dueño' }).then(() => {
+        input.value = '';
+        renderTareasSemana('tareas-dueno-lista', 'tareas-dueno-rango', sel.value);
+      }).catch(manejarErrorRepo);
+    })();
+    return;
+  }
+
+  const marcarTareaHechaBtn = ev.target.closest('[data-action="marcar-tarea-hecha"]');
+  const reabrirTareaBtn = ev.target.closest('[data-action="reabrir-tarea"]');
+  if (marcarTareaHechaBtn || reabrirTareaBtn) {
+    const btn = marcarTareaHechaBtn || reabrirTareaBtn;
+    const id = btn.dataset.key;
+    const enPropio = !!ev.target.closest('#panel-tareas-propio');
+    const promesa = marcarTareaHechaBtn ? Repo.marcarTareaHecha(id) : Repo.reabrirTarea(id);
+    promesa.then(async () => {
+      if (enPropio) {
+        const encargado = await Auth.miEncargado();
+        if (encargado) renderTareasSemana('tareas-propio-lista', 'tareas-propio-rango', encargado.id);
+      } else {
+        const sel = document.getElementById('select-ver-encargado');
+        if (sel && sel.value) renderTareasSemana('tareas-dueno-lista', 'tareas-dueno-rango', sel.value);
+      }
+    }).catch(manejarErrorRepo);
+    return;
+  }
+
+  const cancelarTareaBtn = ev.target.closest('[data-action="cancelar-tarea"]');
+  if (cancelarTareaBtn) {
+    const id = cancelarTareaBtn.dataset.key;
+    const motivo = window.prompt('¿Por qué se saca esta tarea? (queda guardado, no se borra)');
+    if (motivo === null) return;
+    const enPropio = !!ev.target.closest('#panel-tareas-propio');
+    (async () => {
+      const nombre = await Auth.nombreActor();
+      Repo.cancelarTarea(id, { canceladaPor: nombre, motivo }).then(async () => {
+        if (enPropio) {
+          const encargado = await Auth.miEncargado();
+          if (encargado) renderTareasSemana('tareas-propio-lista', 'tareas-propio-rango', encargado.id);
+        } else {
+          const sel = document.getElementById('select-ver-encargado');
+          if (sel && sel.value) renderTareasSemana('tareas-dueno-lista', 'tareas-dueno-rango', sel.value);
+        }
+      }).catch(manejarErrorRepo);
+    })();
+    return;
+  }
+
+  // --- Temas de reunión ---
+
+  const crearTemaBtn = ev.target.closest('[data-action="crear-tema-reunion"]');
+  if (crearTemaBtn) {
+    (async () => {
+      const titulo = document.getElementById('tema-titulo').value.trim();
+      const descripcion = document.getElementById('tema-descripcion').value.trim();
+      if (!titulo) { alert('Escribí un título para el tema.'); return; }
+      const nombre = await Auth.nombreActor();
+      Repo.crearTemaReunion({ titulo, descripcion, creadoPor: nombre }).then(() => {
+        document.getElementById('tema-titulo').value = '';
+        document.getElementById('tema-descripcion').value = '';
+        renderTemasReunion();
+      }).catch(manejarErrorRepo);
+    })();
+    return;
+  }
+
+  const guardarTemaBtn = ev.target.closest('[data-action="guardar-tema-reunion"]');
+  if (guardarTemaBtn) {
+    const id = guardarTemaBtn.dataset.key;
+    const respuesta = document.getElementById(`tema-respuesta-${id}`).value;
+    const estado = document.getElementById(`tema-estado-${id}`).value;
+    const comentario = document.getElementById(`tema-comentario-${id}`).value;
+    (async () => {
+      const nombre = await Auth.nombreActor();
+      Repo.editarTemaReunion(id, { respuesta, estado, autor: nombre, comentario }).then(() => {
+        renderTemasReunion();
+      }).catch(manejarErrorRepo);
+    })();
+    return;
+  }
+
+  const toggleHistorialTemaBtn = ev.target.closest('[data-action="toggle-historial-tema"]');
+  if (toggleHistorialTemaBtn) {
+    const el = document.getElementById('historial-tema-' + toggleHistorialTemaBtn.dataset.key);
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  }
 });
 
 // Arma las tarjetas de progreso de un encargado (propias o, si mira el
@@ -244,11 +499,22 @@ async function renderTarjetasObjetivos(contenedorId, encargado, mensajePausado) 
   cont.innerHTML = html;
 }
 
+async function renderNotificacionesPropio(encargadoId) {
+  const notifCont = document.getElementById('notificaciones-propio');
+  if (!notifCont) return;
+  try {
+    const notifs = await Repo.getNotificacionesNoLeidas(encargadoId);
+    notifCont.innerHTML = notifs.map(notificacionHTML).join('');
+  } catch (e) { /* silencioso a propósito */ }
+}
+
 async function renderEncargado() {
   const cont = document.getElementById('encargado-lista');
   const bannerCont = document.getElementById('identidad-banner-propio');
+  const notifCont = document.getElementById('notificaciones-propio');
   cont.innerHTML = '<div class="empty-msg">Cargando...</div>';
   if (bannerCont) bannerCont.innerHTML = '';
+  if (notifCont) notifCont.innerHTML = '';
 
   let encargado;
   try {
@@ -263,14 +529,19 @@ async function renderEncargado() {
     return;
   }
 
-  // Si esto falla, no rompe el resto de la pantalla: el progreso es lo
-  // importante y tiene que verse igual aunque el banner no cargue.
-  if (bannerCont) {
-    try {
-      const identidad = await Repo.getIdentidad();
-      bannerCont.innerHTML = identidadBannerHTML(identidad, encargado);
-    } catch (e) { /* silencioso a propósito */ }
-  }
+  // Banner de identidad y notificaciones son independientes entre sí, van
+  // en paralelo. Si alguno falla, no rompe el resto de la pantalla: el
+  // progreso es lo importante y tiene que verse igual aunque no carguen.
+  await Promise.all([
+    (async () => {
+      if (!bannerCont) return;
+      try {
+        const identidad = await Repo.getIdentidad();
+        bannerCont.innerHTML = identidadBannerHTML(identidad, encargado);
+      } catch (e) { /* silencioso a propósito */ }
+    })(),
+    renderNotificacionesPropio(encargado.id),
+  ]);
 
   await renderTarjetasObjetivos(
     'encargado-lista',
@@ -327,6 +598,14 @@ async function renderEncargadoComoDueno() {
     encargado,
     'Este perfil está pausado. No se van a cargar tickets nuevos hasta que lo reactives.'
   );
+
+  // Si el panel de tareas ya estaba abierto, lo actualiza para el
+  // colaborador recién elegido. Si estaba cerrado, no pide nada de más
+  // (se carga recién cuando se abre).
+  const panelTareasDueno = document.getElementById('panel-tareas-dueno');
+  if (panelTareasDueno && panelTareasDueno.style.display !== 'none') {
+    await renderTareasSemana('tareas-dueno-lista', 'tareas-dueno-rango', encargado.id);
+  }
 }
 
 document.getElementById('select-ver-encargado').addEventListener('change', () => {
@@ -348,4 +627,132 @@ async function renderGastosEncargado() {
   await poblarSelectProveedor();
   actualizarCamposCheque();
   await renderMisGastos(encargado.id);
+  await renderInformeGastosPropio(encargado.id);
 }
+
+// ---- Tareas de la semana ----
+// Se pide "perezoso": recién cuando se abre el panel (no en cada cambio
+// de pestaña), para no sumarle otra consulta más al arranque de la app.
+
+function tarjetaTareaHTML(t) {
+  if (t.estado === 'cancelada') {
+    return `
+      <div class="card estado-gris" style="padding:10px 14px;">
+        <div style="text-decoration:line-through;color:var(--texto-sec);">${t.texto}</div>
+        <div class="hint" style="margin:2px 0 0;">Sacada por ${t.canceladaPor}${t.canceladaMotivo ? ': ' + t.canceladaMotivo : ''}</div>
+      </div>
+    `;
+  }
+  const hecha = t.estado === 'hecha';
+  return `
+    <div class="card ${hecha ? 'estado-verde' : 'estado-azul'}" style="padding:10px 14px;">
+      <div class="encargado-row">
+        <div style="flex:1;min-width:140px;${hecha ? 'text-decoration:line-through;color:var(--texto-sec);' : ''}">${t.texto}</div>
+        <div class="row-actions" style="margin-top:0;">
+          <button class="secondary" data-action="${hecha ? 'reabrir-tarea' : 'marcar-tarea-hecha'}" data-key="${t.id}">${hecha ? 'Reabrir' : 'Marcar hecha'}</button>
+          <button class="secondary" data-action="cancelar-tarea" data-key="${t.id}">Sacar</button>
+        </div>
+      </div>
+      <div class="hint" style="margin:4px 0 0;">Agregada por ${t.creadoPor}</div>
+    </div>
+  `;
+}
+
+async function renderTareasSemana(contenedorId, rangoId, encargadoId) {
+  const cont = document.getElementById(contenedorId);
+  const rangoEl = document.getElementById(rangoId);
+  if (!cont) return;
+  const semana = lunesDeLaSemana();
+  if (rangoEl) rangoEl.textContent = `Semana del ${formatearRangoSemana(semana)}.`;
+  try {
+    const tareas = await Repo.getTareasSemana(encargadoId, semana);
+    cont.innerHTML = tareas.length === 0
+      ? '<div class="empty-msg">Todavía no hay tareas cargadas para esta semana.</div>'
+      : tareas.map(tarjetaTareaHTML).join('');
+  } catch (e) {
+    cont.innerHTML = '<div class="empty-msg">No se pudieron cargar las tareas. Revisá tu conexión.</div>';
+  }
+}
+
+document.getElementById('btn-toggle-tareas-propio').addEventListener('click', async () => {
+  const panel = document.getElementById('panel-tareas-propio');
+  const abrir = panel.style.display === 'none';
+  panel.style.display = abrir ? 'block' : 'none';
+  if (abrir) {
+    const encargado = await Auth.miEncargado();
+    if (encargado) await renderTareasSemana('tareas-propio-lista', 'tareas-propio-rango', encargado.id);
+  }
+});
+
+document.getElementById('btn-toggle-tareas-dueno').addEventListener('click', async () => {
+  const panel = document.getElementById('panel-tareas-dueno');
+  const abrir = panel.style.display === 'none';
+  panel.style.display = abrir ? 'block' : 'none';
+  if (abrir) {
+    const sel = document.getElementById('select-ver-encargado');
+    if (sel && sel.value) await renderTareasSemana('tareas-dueno-lista', 'tareas-dueno-rango', sel.value);
+  }
+});
+
+// ---- Temas de reunión (manual compartido) ----
+
+function tarjetaTemaHTML(t) {
+  const color = t.estado === 'tratado' ? 'verde' : 'amarillo';
+  const label = t.estado === 'tratado' ? 'Tratado' : 'Pendiente de tratar en reunión';
+  const historial = t.historial || [];
+  const historialHTML = historial.length === 0
+    ? '<div class="empty-msg">Sin cambios registrados todavía.</div>'
+    : historial.slice().reverse().map(h => `
+        <div class="historial-row">
+          <span>${new Date(h.fecha).toLocaleDateString('es-AR')} — ${h.autor}</span>
+        </div>
+        ${h.comentario ? `<div class="historial-nota">${h.comentario}</div>` : ''}
+      `).join('');
+
+  return `
+    <div class="card estado-${color}">
+      <div class="card-top">
+        <div class="card-title">${t.titulo}</div>
+        <span class="estado-tag estado-${color}">${label}</span>
+      </div>
+      <div style="font-size:12px;color:var(--texto-sec);margin-bottom:8px;">Agregado por ${t.creadoPor}</div>
+      ${t.descripcion ? `<div style="margin-bottom:10px;">${t.descripcion}</div>` : ''}
+      <label class="label" for="tema-respuesta-${t.id}">Respuesta / solución</label>
+      <textarea id="tema-respuesta-${t.id}" placeholder="Escribí acá la solución o respuesta...">${t.respuesta}</textarea>
+      <label class="label" for="tema-estado-${t.id}">Estado</label>
+      <select id="tema-estado-${t.id}">
+        <option value="pendiente_reunion"${t.estado === 'pendiente_reunion' ? ' selected' : ''}>Pendiente de tratar en reunión</option>
+        <option value="tratado"${t.estado === 'tratado' ? ' selected' : ''}>Tratado</option>
+      </select>
+      <label class="label" for="tema-comentario-${t.id}">Comentario breve de este cambio (opcional)</label>
+      <input type="text" id="tema-comentario-${t.id}" placeholder="Ej: corregido el horario según el nuevo turno">
+      <div class="row-actions">
+        <button class="primary" data-action="guardar-tema-reunion" data-key="${t.id}" style="width:100%;">Guardar cambios</button>
+      </div>
+      <div class="row-actions">
+        <button class="secondary" data-action="toggle-historial-tema" data-key="${t.id}" style="width:100%;">Historial de cambios (${historial.length})</button>
+      </div>
+      <div id="historial-tema-${t.id}" style="display:none;margin-top:8px;">${historialHTML}</div>
+    </div>
+  `;
+}
+
+async function renderTemasReunion() {
+  const cont = document.getElementById('temas-reunion-lista');
+  if (!cont) return;
+  try {
+    const temas = await Repo.getTemasReunion();
+    cont.innerHTML = temas.length === 0
+      ? '<div class="empty-msg">Todavía no hay temas cargados.</div>'
+      : temas.map(tarjetaTemaHTML).join('');
+  } catch (e) {
+    cont.innerHTML = '<div class="empty-msg">No se pudieron cargar los temas. Revisá tu conexión.</div>';
+  }
+}
+
+document.getElementById('btn-toggle-temas-reunion').addEventListener('click', async () => {
+  const panel = document.getElementById('panel-temas-reunion');
+  const abrir = panel.style.display === 'none';
+  panel.style.display = abrir ? 'block' : 'none';
+  if (abrir) await renderTemasReunion();
+});
