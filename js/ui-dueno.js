@@ -19,7 +19,35 @@ async function renderIdentidad(identidad) {
   document.getElementById('identidad-mision').value = identidad.mision;
   document.getElementById('identidad-vision').value = identidad.vision;
   document.getElementById('identidad-valores').value = identidad.valores;
+  renderIdentidadPreview();
 }
+
+// Vista previa del "cartel" con lo que hay cargado en el formulario en
+// este momento, sin filtrar por colaborador (el dueño ve siempre las
+// cuatro secciones acá, aunque a tal o cual colaborador después no se le
+// muestren todas). Se recalcula solo con lo que ya está en pantalla, sin
+// pedirle nada a Supabase, así responde al instante mientras se escribe.
+function renderIdentidadPreview() {
+  const cont = document.getElementById('identidad-preview');
+  if (!cont) return;
+  const bloques = [];
+  const proposito = document.getElementById('identidad-proposito').value.trim();
+  const mision = document.getElementById('identidad-mision').value.trim();
+  const vision = document.getElementById('identidad-vision').value.trim();
+  const valores = document.getElementById('identidad-valores').value.trim();
+  if (proposito) bloques.push({ titulo: 'Propósito', texto: proposito });
+  if (mision) bloques.push({ titulo: 'Misión', texto: mision });
+  if (vision) bloques.push({ titulo: 'Visión', texto: vision });
+  if (valores) bloques.push({ titulo: 'Principios y valores', texto: valores });
+  cont.innerHTML = bloques.length === 0
+    ? '<div class="empty-msg">Todavía no cargaste nada. A medida que escribas acá arriba, vas a ver el cartel tomar forma.</div>'
+    : identidadCartelHTML(bloques);
+}
+
+['identidad-proposito', 'identidad-mision', 'identidad-vision', 'identidad-valores'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', renderIdentidadPreview);
+});
 
 async function renderResumenDueno(encargados, objetivos) {
   encargados = encargados || await Repo.getEncargados();

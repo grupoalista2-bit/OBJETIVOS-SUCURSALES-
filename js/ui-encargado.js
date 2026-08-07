@@ -28,23 +28,52 @@ function progresoSemanalHTML(obj) {
 // Solo muestra los bloques que el dueño habilitó para ESE encargado
 // puntual, y solo si además tienen texto cargado.
 
+const IDENTIDAD_ICONOS = {
+  'Propósito': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>',
+  'Misión': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3v18" stroke-linecap="round"/><path d="M5 4h11l-2 3.5L16 11H5" stroke-linejoin="round"/></svg>',
+  'Visión': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7Z" stroke-linejoin="round"/><circle cx="12" cy="12" r="3"/></svg>',
+  'Principios y valores': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.9 6.3 6.9.6-5.2 4.6 1.6 6.8L12 16.9 5.8 20.3l1.6-6.8L2.2 8.9l6.9-.6L12 2Z" stroke-linejoin="round"/></svg>',
+};
+
+// Un bloque = un ícono + título + texto (o, si es "Principios y valores",
+// una lista prolija con una línea por renglón cargado).
+function identidadBloqueHTML(titulo, texto) {
+  const esValores = titulo === 'Principios y valores';
+  const cuerpoHTML = esValores
+    ? `<ul class="identidad-bloque-valores">${texto.split('\n').map(l => l.trim()).filter(Boolean).map(l => `<li>${l}</li>`).join('')}</ul>`
+    : `<div class="identidad-bloque-texto">${texto}</div>`;
+  return `
+    <div class="identidad-bloque">
+      <div class="identidad-bloque-icono">${IDENTIDAD_ICONOS[titulo] || ''}</div>
+      <div style="flex:1;min-width:0;">
+        <div class="identidad-bloque-titulo">${titulo}</div>
+        ${cuerpoHTML}
+      </div>
+    </div>
+  `;
+}
+
+// El "cartel" motivacional: fondo oscuro con degradé, un bloque por cada
+// texto cargado. Se reutiliza tanto para lo que ve cada colaborador (ya
+// filtrado según lo que el dueño le habilitó) como para la vista previa
+// del propio dueño en su panel de edición.
+function identidadCartelHTML(bloques, etiqueta) {
+  if (bloques.length === 0) return '';
+  return `
+    <div class="identidad-cartel">
+      ${etiqueta ? `<div class="identidad-cartel-titulo">${etiqueta}</div>` : ''}
+      ${bloques.map(b => identidadBloqueHTML(b.titulo, b.texto)).join('')}
+    </div>
+  `;
+}
+
 function identidadBannerHTML(identidad, encargado) {
   const bloques = [];
   if (encargado.veProposito && identidad.proposito) bloques.push({ titulo: 'Propósito', texto: identidad.proposito });
   if (encargado.veMision && identidad.mision) bloques.push({ titulo: 'Misión', texto: identidad.mision });
   if (encargado.veVision && identidad.vision) bloques.push({ titulo: 'Visión', texto: identidad.vision });
   if (encargado.veValores && identidad.valores) bloques.push({ titulo: 'Principios y valores', texto: identidad.valores });
-  if (bloques.length === 0) return '';
-  return `
-    <div class="card estado-azul" style="background:var(--azul-bg);">
-      ${bloques.map(b => `
-        <div style="margin-bottom:10px;">
-          <div class="label" style="color:var(--azul);">${b.titulo}</div>
-          <div style="font-size:14px;line-height:1.5;white-space:pre-line;">${b.texto}</div>
-        </div>
-      `).join('')}
-    </div>
-  `;
+  return identidadCartelHTML(bloques);
 }
 
 // ---- Notificaciones del dueño (recordatorios puntuales, p. ej. al cargar
